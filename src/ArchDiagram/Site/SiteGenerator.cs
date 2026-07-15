@@ -1,0 +1,77 @@
+using System.Text;
+using ArchDiagram.Graph;
+using ArchDiagram.Rendering;
+using ArchDiagram.Site.Pages;
+
+namespace ArchDiagram.Site;
+
+/// <summary>Writes the complete static site: shared assets, overview + drill-down
+/// pages, one page per file, and model.json. Everything is relative-path only.</summary>
+public static class SiteGenerator
+{
+    private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
+
+    public static string Generate(ProjectModel model, string outDir, int maxNodes, string generatedOn,
+        bool showComplexity = false, bool showSnippets = false, bool wiki = false)
+    {
+        Directory.CreateDirectory(outDir);
+        Directory.CreateDirectory(Path.Combine(outDir, "files"));
+        SiteAssets.CopyTo(outDir);
+
+        WritePage(outDir, "index.html", "Overview", model, "index.html", "",
+            PageTemplate.Crumbs((null, "Overview")),
+            IndexPage.Body(model, maxNodes, generatedOn));
+
+        WritePage(outDir, "guide.html", "Guide", model, "guide.html", "",
+            PageTemplate.Crumbs(("index.html", "Overview"), (null, "Guide")),
+            GuidePage.Body(model));
+
+        WritePage(outDir, "structure.html", "Structure", model, "structure.html", "",
+            PageTemplate.Crumbs(("index.html", "Overview"), (null, "Structure")),
+            StructurePage.Body(model));
+
+        WritePage(outDir, "dependencies.html", "Dependencies", model, "dependencies.html", "",
+            PageTemplate.Crumbs(("index.html", "Overview"), (null, "Dependencies")),
+            DependenciesPage.Body(model, maxNodes));
+
+        WritePage(outDir, "types.html", "Types & Members", model, "types.html", "",
+            PageTemplate.Crumbs(("index.html", "Overview"), (null, "Types & Members")),
+            TypesPage.Body(model));
+
+        WritePage(outDir, "calls.html", "Call Graph", model, "calls.html", "",
+            PageTemplate.Crumbs(("index.html", "Overview"), (null, "Call Graph")),
+            CallsPage.Body(model, maxNodes));
+
+        WritePage(outDir, "hotspots.html", "Hotspots & Metrics", model, "hotspots.html", "",
+            PageTemplate.Crumbs(("index.html", "Overview"), (null, "Hotspots")),
+            HotspotsPage.Body(model, showComplexity));
+
+        WritePage(outDir, "graph.html", "Graph (3D)", model, "graph.html", "",
+            PageTemplate.Crumbs(("index.html", "Overview"), (null, "Graph (3D)")),
+            GraphPage.Body(model));
+
+        foreach (var file in model.Files)
+        {
+            var crumbs = PageTemplate.Crumbs(("../index.html", "Overview"), ("../structure.html", "Structure"), (null, file.RelPath));
+            var html = PageTemplate.Render(file.RelPath, model.RootName, "", "../", crumbs, FilePage.Body(model, file, maxNodes, showComplexity, showSnippets), navItems: null, sourceLink: model.SourceLink);
+            File.WriteAllText(Path.Combine(outDir, "files", file.Slug + ".html"), html, Utf8NoBom);
+        }
+
+        ModelJsonWriter.Write(model, Path.Combine(outDir, "model.json"));
+        GraphDataWriter.Write(model, Path.Combine(outDir, "graph.json"));
+        SearchIndexWriter.Write(model, Path.Combine(outDir, "assets", "search-index.js"));
+        MarkdownExporter.Write(model, Path.Combine(outDir, "ARCHITECTURE.md"), maxNodes, generatedOn);
+        if (wiki)
+        {
+            WikiExporter.Write(model, Path.Combine(outDir, "wiki"), maxNodes, generatedOn, showComplexity);
+        }
+        return Path.Combine(outDir, "index.html");
+    }
+
+    private static void WritePage(string outDir, string fileName, string title, ProjectModel model,
+        string activeHref, string relRoot, string crumbs, string body)
+    {
+        var html = PageTemplate.Render(title, model.RootName, activeHref, relRoot, crumbs, body, navItems: null, sourceLink: model.SourceLink);
+        File.WriteAllText(Path.Combine(outDir, fileName), html, Utf8NoBom);
+    }
+}

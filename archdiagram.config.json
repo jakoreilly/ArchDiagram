@@ -1,0 +1,40 @@
+{
+  "//": "ArchDiagram launcher configuration. Edit the values below, then run ArchDiagram.cmd.",
+
+  "//source": "Pick ONE source. If GitLabUrl is non-empty it wins; otherwise ProjectPath is scanned.",
+  "ProjectPath": ".",
+  "GitLabUrl": "",
+  "GitRef": "",
+
+  "//clone": "Where GitLab repos are cloned to (relative paths resolve against this launcher folder).",
+  "WorkDir": "work",
+
+  "//output": "Where the generated site lands (relative paths resolve against this launcher folder). Leave blank to auto-name it 'site-<project>' so sites for different sources can coexist here.",
+  "OutputDir": "",
+
+  "//display": "MaxNodes caps how many nodes any single diagram shows before collapsing the rest.",
+  "MaxNodes": 100,
+  "OpenViewer": true,
+
+  "//complexity": "Set false to hide complexity reference points (rankings, badges). Snippets false hides inline source of complex methods.",
+  "Complexity": true,
+  "Snippets": true,
+
+  "//wiki": "Set false to skip the offline wiki export (Confluence Storage Format) written to <output>/wiki.",
+  "Wiki": true,
+
+  "//exclude": "Optional list of directory NAMES to skip while scanning (matched anywhere in the tree), e.g. [ \"node_modules\", \"dist\" ]. bin/obj are already ignored by the scanner.",
+  "Exclude": [],
+
+  "//sourcelink": "Optional. Link files/nodes back to source. SourceLinkType is github|gitlab|local. SourceLinkBase is the repo web URL (https://github.com/org/repo) or a local root (C:/src/app). SourceLinkRef is the branch/tag (ignored for local). Leave Type blank to bake no links in; the viewer can still prompt for them in-browser (stored per browser).",
+  "SourceLinkType": "",
+  "SourceLinkBase": "",
+  "SourceLinkRef": "main",
+
+  "//landscape": "Set true (or run Launch-ArchDiagram.ps1 -Landscape) to skip scanning and instead cross-reference every already-generated site-*/model.json in this folder into a parent viewer at site-landscape.",
+  "Landscape": false,
+
+  "//groups": "Optional. When Groups is a non-empty array the launcher IGNORES ProjectPath/GitLabUrl/Landscape and instead: for each group, scans every project into its own site-<project> folder, then builds ONE landscape for that group at site-landscape-<group>. Set OverallLandscape true to also build a combined landscape of every project across all groups at site-landscape. A Projects entry is either a local path string, or an object {\"GitLabUrl\":\"...\",\"GitRef\":\"...\"}. Re-run ArchDiagram.cmd periodically to keep everything up to date.",
+  "Groups": [],
+  "OverallLandscape": false
+}

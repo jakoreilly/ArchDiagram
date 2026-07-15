@@ -1,0 +1,15 @@
+bin/
+obj/
+site-*/
+site-*
+work/
+*.user
+.vs/
+.DS_Store
+
+# Ignore Markdown files by default, but keep the existing project docs tracked.
+*.md
+!README.md
+!CONTRIBUTING.md
+!DESCRIPTION.md
+!SECURITY.md
