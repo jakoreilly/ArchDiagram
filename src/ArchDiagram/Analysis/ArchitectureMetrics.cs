@@ -19,6 +19,19 @@ public static class ArchitectureMetrics
     public sealed record ModuleMetric(string Key, int Files, int Loc, int Ca, int Ce,
         double Instability, double Abstractness, double Distance);
 
+    public enum Zone { Healthy, ZoneOfPain, ZoneOfUselessness, BenignLeaf, Watch }
+
+    /// <summary>Plain-language zone from Instability/Abstractness. Pure. Ca disambiguates a
+    /// rigid painful module (has dependents) from a harmless concrete leaf (none).</summary>
+    public static Zone Classify(double instability, double abstractness, int ca)
+    {
+        var d = Math.Abs(abstractness + instability - 1.0);
+        if (d <= 0.3) { return Zone.Healthy; }
+        if (instability <= 0.3 && abstractness <= 0.3) { return ca > 0 ? Zone.ZoneOfPain : Zone.BenignLeaf; }
+        if (instability >= 0.7 && abstractness >= 0.7) { return Zone.ZoneOfUselessness; }
+        return Zone.Watch;
+    }
+
     public sealed record Result(
         IReadOnlyList<ModuleMetric> Modules,
         double PropagationCost,

@@ -135,7 +135,7 @@ a.tile:hover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
 /* ---- Selector rows ---- */
 .select-row { display: flex; align-items: center; gap: .6rem; margin: .75rem 0; flex-wrap: wrap; }
 .select-row label { font-size: .85rem; color: var(--text-soft); }
-select { padding: .35rem .6rem; border-radius: 7px; border: 1px solid var(--border); background: var(--bg-panel); color: var(--text); font-size: .9rem; max-width: 100%; }
+select, .calc input[type="number"] { padding: .35rem .6rem; border-radius: 7px; border: 1px solid var(--border); background: var(--bg-panel); color: var(--text); font-size: .9rem; max-width: 100%; }
 
 /* ---- Structure tree ---- */
 .tree details { margin-left: 1rem; }
@@ -161,6 +161,22 @@ table.grid tr:last-child td { border-bottom: none; }
 .metrics-scatter { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px;
   box-shadow: var(--shadow); padding: .5rem; margin: .75rem 0 1.5rem; overflow: hidden; }
 .metrics-scatter svg { display: block; width: 100%; max-width: 520px; height: auto; margin: 0 auto; }
+.metrics-scatter [data-tip] { cursor: pointer; }
+.metrics-scatter [data-tip]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* ---- Metrics formula card ---- */
+.formula-card { display: flex; flex-direction: column; gap: .5rem; margin: 0 0 1.25rem; }
+.formula-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1rem; }
+.formula-row .formula { font-size: 1rem; padding: .25em .6em; }
+.formula-row .formula-eg { color: var(--text-soft); font-size: .9rem; }
+
+/* ---- Metrics zone calculator ---- */
+.calc .calc-inputs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .25rem 1rem; }
+.calc .calc-inputs .select-row { margin: .35rem 0; justify-content: space-between; }
+.calc .calc-inputs input[type="number"] { width: 6rem; }
+.calc .calc-out { display: flex; gap: .5rem; margin: .75rem 0 .5rem; font-size: .95rem; }
+.calc .calc-out .badge { font-size: .85rem; }
+.calc .calc-verdict { color: var(--text-soft); margin: .25rem 0 0; }
 
 /* ---- Structure treemap ---- */
 .treemap { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px;

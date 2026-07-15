@@ -34,13 +34,22 @@ public static class MetricsPage
                 + "abstractness counts <code>interface</code> and <code>abstract</code> types, and namespace "
                 + "import edges are capped — treat these as strong hints, not exact measures.</p>");
 
-        var worst = r.Modules[0]; // ordered Distance desc
+        AppendLegend(sb, open: true);
+
+        // Rank the "worst distance" over real problems only — a concrete leaf with no
+        // dependents shows D≈1 purely as a formula artifact, so exclude BenignLeaf.
+        var ranked = r.Modules
+            .Where(m => ArchitectureMetrics.Classify(m.Instability, m.Abstractness, m.Ca) != ArchitectureMetrics.Zone.BenignLeaf)
+            .ToList();
+        var worst = (ranked.Count > 0 ? ranked : r.Modules)[0]; // Modules already ordered by D desc
         sb.Append("<div class=\"tiles\">");
         Tile(sb, r.Modules.Count.ToString("N0"), "Modules");
         Tile(sb, r.PropagationCost.ToString("P0", CultureInfo.InvariantCulture), "Propagation cost");
         Tile(sb, r.Cycles.Count.ToString("N0"), "Dependency cycles", r.Cycles.Count > 0);
         Tile(sb, worst.Distance.ToString("F2", CultureInfo.InvariantCulture), "Worst distance (D)", worst.Distance > 0.6);
         sb.Append("</div>");
+
+        AppendFormulaCard(sb, r);
 
         // Main-sequence scatter.
         var prefix = CommonPrefix(r.Modules.Select(m => m.Key).Where(k => !k.StartsWith('(')).ToList());
@@ -51,25 +60,28 @@ public static class MetricsPage
                 + "<strong>zone of uselessness</strong> (abstract &amp; unused). Dot size = files; colour = distance.</p>");
         sb.Append($"<div class=\"metrics-scatter\">{BuildScatter(r.Modules, prefix)}</div>");
 
+        AppendCalculator(sb);
+
         // Metrics table (worst distance first).
         if (prefix.Length > 0)
         {
             sb.Append($"<p class=\"note\">Module names share the prefix <code>{Html.Encode(prefix)}</code>, omitted below.</p>");
         }
         sb.Append("<table class=\"grid\"><thead><tr><th>Module</th><th>Files</th><th>Ca</th><th>Ce</th>"
-                + "<th>Instability</th><th>Abstractness</th><th>Distance</th></tr></thead><tbody>");
+                + "<th>Instability</th><th>Abstractness</th><th>Distance</th><th>Verdict</th></tr></thead><tbody>");
         foreach (var m in r.Modules)
         {
+            var (label, cls) = ZoneBadge(ArchitectureMetrics.Classify(m.Instability, m.Abstractness, m.Ca));
             sb.Append($"<tr><td>{Html.Encode(Strip(m.Key, prefix))}</td><td>{m.Files:N0}</td>"
                     + $"<td>{m.Ca:N0}</td><td>{m.Ce:N0}</td>"
                     + $"<td>{m.Instability.ToString("F2", CultureInfo.InvariantCulture)}</td>"
                     + $"<td>{m.Abstractness.ToString("F2", CultureInfo.InvariantCulture)}</td>"
-                    + $"<td><span class=\"badge {DistanceClass(m.Distance)}\">{m.Distance.ToString("F2", CultureInfo.InvariantCulture)}</span></td></tr>");
+                    + $"<td><span class=\"badge {DistanceClass(m.Distance)}\">{m.Distance.ToString("F2", CultureInfo.InvariantCulture)}</span></td>"
+                    + $"<td><span class=\"badge {cls}\">{label}</span></td></tr>");
         }
         sb.Append("</tbody></table>");
 
         AppendCycles(sb, r, prefix);
-        AppendLegend(sb);
         return sb.ToString();
     }
 
@@ -101,10 +113,11 @@ public static class MetricsPage
         sb.Append("</ul></div>");
     }
 
-    private static void AppendLegend(StringBuilder sb)
+    private static void AppendLegend(StringBuilder sb, bool open = false)
     {
-        sb.Append("""
-<details class="legend"><summary>What the numbers mean</summary>
+        var openAttr = open ? " open" : "";
+        sb.Append($"""
+<details class="legend"{openAttr}><summary>What the numbers mean</summary>
 <div class="legend-grid" style="flex-direction:column;gap:.35rem">
   <span class="legend-item"><strong>Ca</strong> (afferent) — distinct modules that depend on this one. High = risky to change.</span>
   <span class="legend-item"><strong>Ce</strong> (efferent) — distinct modules this one depends on. High = knows about a lot.</span>
@@ -115,6 +128,52 @@ public static class MetricsPage
 </div>
 </details>
 """);
+    }
+
+    /// <summary>The three formulas shown big, each followed by the worst-distance module's
+    /// own numbers substituted in — so the reader sees the arithmetic, not just the result.</summary>
+    private static void AppendFormulaCard(StringBuilder sb, ArchitectureMetrics.Result r)
+    {
+        var m = r.Modules[0]; // worst distance, already ordered desc
+        string N(double v) => v.ToString("F2", CultureInfo.InvariantCulture);
+        var name = Html.Encode(m.Key);
+        sb.Append("<div class=\"panel formula-card\">");
+        sb.Append("<div class=\"formula-row\"><code class=\"formula\">I = Ce / (Ca + Ce)</code>"
+                + $"<span class=\"formula-eg\">{name}: {m.Ce} / ({m.Ca} + {m.Ce}) = <strong>{N(m.Instability)}</strong></span></div>");
+        sb.Append("<div class=\"formula-row\"><code class=\"formula\">A = abstract types / total types</code>"
+                + $"<span class=\"formula-eg\">{name}: <strong>{N(m.Abstractness)}</strong></span></div>");
+        sb.Append("<div class=\"formula-row\"><code class=\"formula\">D = | A + I − 1 |</code>"
+                + $"<span class=\"formula-eg\">{name}: |{N(m.Abstractness)} + {N(m.Instability)} − 1| = <strong>{N(m.Distance)}</strong></span></div>");
+        sb.Append("</div>");
+    }
+
+    /// <summary>Offline what-if calculator: type counts in, live I/A/D + a zone verdict out.
+    /// All wiring is id-based; site.js finds #zone-calc and computes in the browser.</summary>
+    private static void AppendCalculator(StringBuilder sb)
+    {
+        sb.Append("<h2>Zone calculator <span class=\"badge\">what-if</span></h2>");
+        sb.Append("<p class=\"lede\">Enter a module's coupling and type counts to see its "
+                + "Instability, Abstractness and Distance — and what to change to move it toward "
+                + "the healthy main sequence. Nothing is sent anywhere; the math runs in your browser.</p>");
+        sb.Append("<div class=\"panel calc\" id=\"zone-calc\">");
+        sb.Append("<div class=\"calc-inputs\">");
+        Field(sb, "calc-ca", "Afferent coupling (Ca)", 0);
+        Field(sb, "calc-ce", "Efferent coupling (Ce)", 0);
+        Field(sb, "calc-abs", "Abstract / interface types", 0);
+        Field(sb, "calc-total", "Total types", 0);
+        sb.Append("</div>");
+        sb.Append("<div class=\"calc-out\">"
+                + "<span class=\"badge\" id=\"calc-i\">I —</span>"
+                + "<span class=\"badge\" id=\"calc-a\">A —</span>"
+                + "<span class=\"badge\" id=\"calc-d\">D —</span></div>");
+        sb.Append("<p class=\"calc-verdict\" id=\"calc-verdict\"></p>");
+        sb.Append("</div>");
+    }
+
+    private static void Field(StringBuilder sb, string id, string label, int value)
+    {
+        sb.Append($"<div class=\"select-row\"><label for=\"{id}\">{Html.Encode(label)}</label>"
+                + $"<input type=\"number\" min=\"0\" step=\"1\" id=\"{id}\" value=\"{value}\"></div>");
     }
 
     // ---- Main-sequence SVG (pre-split, offline, theme-aware) ----
@@ -153,17 +212,29 @@ public static class MetricsPage
         var cy = MapY(m.Abstractness);
         var radius = 4 + (6.0 * m.Files / maxFiles);
         var fill = m.Distance <= 0.3 ? "var(--ok)" : m.Distance <= 0.6 ? "var(--accent)" : "var(--danger)";
+        var (verdict, _) = ZoneBadge(ArchitectureMetrics.Classify(m.Instability, m.Abstractness, m.Ca));
         var title = $"{Strip(m.Key, prefix)} · I={m.Instability.ToString("F2", CultureInfo.InvariantCulture)}"
                   + $" A={m.Abstractness.ToString("F2", CultureInfo.InvariantCulture)}"
-                  + $" D={m.Distance.ToString("F2", CultureInfo.InvariantCulture)}";
+                  + $" D={m.Distance.ToString("F2", CultureInfo.InvariantCulture)} · {verdict}";
+        var enc = Html.Encode(title);
         sb.Append(CultureInfo.InvariantCulture,
-            $"<circle cx=\"{cx:0.#}\" cy=\"{cy:0.#}\" r=\"{radius:0.#}\" fill=\"{fill}\" fill-opacity=\"0.75\" stroke=\"var(--bg-panel)\" stroke-width=\"1\"><title>{Html.Encode(title)}</title></circle>");
+            $"<circle cx=\"{cx:0.#}\" cy=\"{cy:0.#}\" r=\"{radius:0.#}\" fill=\"{fill}\" fill-opacity=\"0.75\" stroke=\"var(--bg-panel)\" stroke-width=\"1\" tabindex=\"0\" role=\"img\" data-tip=\"{enc}\" aria-label=\"{enc}\"><title>{enc}</title></circle>");
     }
 
     private static double MapX(double instability) => Pad + instability * (W - 2 * Pad);
     private static double MapY(double abstractness) => (H - Pad) - abstractness * (H - 2 * Pad);
 
     private static string DistanceClass(double d) => d <= 0.3 ? "ok" : d <= 0.6 ? "" : "warn";
+
+    private static (string Label, string Cls) ZoneBadge(ArchitectureMetrics.Zone z) => z switch
+    {
+        ArchitectureMetrics.Zone.Healthy => ("healthy", "ok"),
+        ArchitectureMetrics.Zone.BenignLeaf => ("leaf", ""),
+        ArchitectureMetrics.Zone.Watch => ("watch", ""),
+        ArchitectureMetrics.Zone.ZoneOfPain => ("zone of pain", "warn"),
+        ArchitectureMetrics.Zone.ZoneOfUselessness => ("uselessness", "warn"),
+        _ => ("watch", ""),
+    };
 
     private static void Tile(StringBuilder sb, string num, string label, bool warn = false)
     {

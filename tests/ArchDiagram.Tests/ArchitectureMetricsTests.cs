@@ -60,6 +60,15 @@ public class ArchitectureMetricsTests
     [Fact]
     public void No_cycle_when_acyclic() => Assert.Empty(ArchitectureMetrics.Compute(Chain()).Cycles);
 
+    [Theory]
+    [InlineData(1.0, 0.0, 0, ArchitectureMetrics.Zone.Healthy)]        // pure unstable leaf: D=0
+    [InlineData(0.0, 0.0, 2, ArchitectureMetrics.Zone.ZoneOfPain)]     // stable concrete, has dependents
+    [InlineData(0.0, 0.0, 0, ArchitectureMetrics.Zone.BenignLeaf)]     // stable concrete, no dependents
+    [InlineData(1.0, 1.0, 0, ArchitectureMetrics.Zone.ZoneOfUselessness)]
+    [InlineData(0.5, 0.0, 1, ArchitectureMetrics.Zone.Watch)]
+    public void Classify_zones(double i, double a, int ca, ArchitectureMetrics.Zone expected)
+        => Assert.Equal(expected, ArchitectureMetrics.Classify(i, a, ca));
+
     [Fact]
     public void Detects_a_cycle()
     {

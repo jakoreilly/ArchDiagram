@@ -24,6 +24,22 @@
   var seq = 0;
   var tipEl = document.getElementById("hover-tip");
 
+  // Rich hover card shared by diagram nodes and the metrics scatter. Pointer + keyboard.
+  function bindTip(node, text) {
+    if (!text || !tipEl) { return; }
+    function show(e) {
+      tipEl.textContent = text; tipEl.hidden = false;
+      var px = (e && e.clientX), py = (e && e.clientY);
+      if (px == null) { var r = node.getBoundingClientRect(); px = r.left + r.width / 2; py = r.top; }
+      tipEl.style.left = Math.min(px + 14, window.innerWidth - tipEl.offsetWidth - 8) + "px";
+      tipEl.style.top = Math.min(py + 14, window.innerHeight - tipEl.offsetHeight - 8) + "px";
+    }
+    node.addEventListener("mousemove", show);
+    node.addEventListener("focus", show);
+    node.addEventListener("mouseleave", function () { tipEl.hidden = true; });
+    node.addEventListener("blur", function () { tipEl.hidden = true; });
+  }
+
   function renderCard(card) {
     if (card.dataset.rendered) { return; }
     card.dataset.rendered = "1";
@@ -218,17 +234,7 @@
       var text = map[alias];
       var url = hrefs[alias];
 
-      if (text && tipEl) {
-        node.addEventListener("mousemove", function (e) {
-          tipEl.textContent = text;
-          tipEl.hidden = false;
-          var x = Math.min(e.clientX + 14, window.innerWidth - tipEl.offsetWidth - 8);
-          var y = Math.min(e.clientY + 14, window.innerHeight - tipEl.offsetHeight - 8);
-          tipEl.style.left = x + "px";
-          tipEl.style.top = y + "px";
-        });
-        node.addEventListener("mouseleave", function () { tipEl.hidden = true; });
-      }
+      bindTip(node, text);
 
       if (url) {
         node.classList.add("clickable-node");
@@ -252,6 +258,59 @@
     sel.addEventListener("change", update);
     update();
   });
+
+  // Metrics scatter: give every dot the same rich hover card as diagram nodes,
+  // plus keyboard focus (the dots carry tabindex + data-tip from the server).
+  document.querySelectorAll(".metrics-scatter [data-tip]").forEach(function (el) {
+    bindTip(el, el.getAttribute("data-tip"));
+  });
+
+  // Metrics: offline zone calculator (no network). Mirrors ArchitectureMetrics.Classify.
+  (function () {
+    var box = document.getElementById("zone-calc");
+    if (!box) { return; }
+    var ca = box.querySelector("#calc-ca"), ce = box.querySelector("#calc-ce");
+    var abs = box.querySelector("#calc-abs"), total = box.querySelector("#calc-total");
+    var outI = box.querySelector("#calc-i"), outA = box.querySelector("#calc-a"), outD = box.querySelector("#calc-d");
+    var verdict = box.querySelector("#calc-verdict");
+    function num(el) { var v = parseInt(el.value, 10); return isNaN(v) || v < 0 ? 0 : v; }
+    function cls(el, k) { el.className = "badge" + (k ? " " + k : ""); }
+    function zoneVerdict(I, A, D, Ca, Ce, Ab, Tot) {
+      if ((Ca + Ce) === 0) {
+        return "Isolated module — no dependencies in or out. Instability is undefined; treated as 0.";
+      }
+      if (I <= 0.3 && A <= 0.3 && Ca > 0) {
+        return "<strong>Zone of pain</strong> — rigid and heavily depended-on. Add abstractions "
+             + "(interfaces/abstract base types) so dependents rely on contracts, or raise Ce toward "
+             + Ca + " to increase instability.";
+      }
+      if (I >= 0.7 && A >= 0.7) {
+        return "<strong>Zone of uselessness</strong> — abstract but barely used. Delete unused "
+             + "abstractions or give this module concrete work.";
+      }
+      if (D <= 0.3) { return "<strong>Healthy</strong> — close to the main sequence."; }
+      if (A <= 0.3 && I <= 0.3 && Ca === 0) {
+        return "Concrete leaf with no dependents — the high distance is a formula artifact, not a real problem.";
+      }
+      return "<strong>Watch</strong> — D=" + D.toFixed(2) + " is off the main sequence; "
+           + "nudge abstractness or coupling toward A + I = 1.";
+    }
+    function recompute() {
+      var Ca = num(ca), Ce = num(ce), Ab = num(abs), Tot = num(total);
+      var I = (Ca + Ce) === 0 ? 0 : Ce / (Ca + Ce);
+      var A = Tot === 0 ? 0 : Math.min(1, Ab / Tot);
+      var D = Math.abs(A + I - 1);
+      outI.textContent = "I " + I.toFixed(2);
+      outA.textContent = "A " + A.toFixed(2);
+      outD.textContent = "D " + D.toFixed(2);
+      cls(outD, D <= 0.3 ? "ok" : D <= 0.6 ? "" : "warn");
+      verdict.innerHTML = zoneVerdict(I, A, D, Ca, Ce, Ab, Tot);
+    }
+    ["input", "change"].forEach(function (ev) {
+      [ca, ce, abs, total].forEach(function (el) { el.addEventListener(ev, recompute); });
+    });
+    recompute();
+  })();
 
   // Render all initially-visible cards. Cards marked data-deferred are rendered
   // by a page-specific controller (e.g. the landscape layer filters) instead.
