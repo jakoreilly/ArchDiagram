@@ -16,9 +16,16 @@ public static class CallsPage
             sb.Append($"<div class=\"panel empty-state\"><div class=\"big\">☎</div><p>{Html.Encode(TypesPage.EmptyStateCopy)}</p></div>");
             return sb.ToString();
         }
-        if (model.Calls.Count == 0)
+
+        // Test files are hidden by default in the viewer, but this diagram is pre-rendered SVG the
+        // CSS toggle can't reach — so exclude any call touching a test file at generation time,
+        // consistent with the treemap and the Start-here ranking.
+        var testSlugs = new HashSet<string>(model.Files.Where(f => f.IsTest).Select(f => f.Slug), StringComparer.Ordinal);
+        var calls = model.Calls.Where(e => !testSlugs.Contains(e.CallerSlug) && !testSlugs.Contains(e.CalleeSlug)).ToList();
+
+        if (calls.Count == 0)
         {
-            sb.Append("<div class=\"panel empty-state\"><div class=\"big\">☎</div><p>No cross-file method calls were detected between the declared C# methods.</p></div>");
+            sb.Append("<div class=\"panel empty-state\"><div class=\"big\">☎</div><p>No cross-file method calls were detected between the declared (non-test) C# methods.</p></div>");
             return sb.ToString();
         }
 
@@ -28,12 +35,13 @@ call graph would be unreadable). Pick a type to see what its methods call and wh
 <p class="note"><strong>How this is derived:</strong> calls are matched heuristically by method name and
 parameter count from syntax-only parsing — there is no compiler symbol resolution. A <em>dashed</em> arrow
 means several declared methods matched (ambiguous); very common names like <code>ToString</code> or
-<code>Add</code> are only linked when exactly one matching declaration exists in this codebase.</p>
+<code>Add</code> are only linked when exactly one matching declaration exists in this codebase.
+Test files are excluded from this graph.</p>
 """);
 
         // Types that participate in at least one edge, ordered by participation.
         var participation = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var e in model.Calls)
+        foreach (var e in calls)
         {
             participation[e.CallerType] = participation.GetValueOrDefault(e.CallerType) + 1;
             participation[e.CalleeType] = participation.GetValueOrDefault(e.CalleeType) + 1;
@@ -42,11 +50,9 @@ means several declared methods matched (ambiguous); very common names like <code
             .Select(kv => kv.Key).ToList();
 
         sb.Append("<div class=\"select-row\"><label for=\"call-select\">Type:</label><select id=\"call-select\" data-diagram-select=\"calls\">");
-        var first = true;
         foreach (var t in types)
         {
             sb.Append($"<option value=\"call-{Slug(t)}\">{Html.Encode(t)} ({participation[t]} links)</option>");
-            _ = first; first = false;
         }
         sb.Append("</select></div>");
         if (GraphPage.HasData(model)) { sb.Append(PageTemplate.ExploreIn3DNote()); }
@@ -54,7 +60,7 @@ means several declared methods matched (ambiguous); very common names like <code
         var shown = true;
         foreach (var t in types)
         {
-            sb.Append(PageTemplate.DiagramBlock("call-" + Slug(t), BuildTypeDiagram(model, t, maxNodes),
+            sb.Append(PageTemplate.DiagramBlock("call-" + Slug(t), BuildTypeDiagram(model, calls, t, maxNodes),
                 $"{model.RootName}-calls-{Slug(t)}", hidden: !shown, group: "calls"));
             shown = false;
         }
@@ -70,16 +76,16 @@ means several declared methods matched (ambiguous); very common names like <code
         return sb.ToString();
     }
 
-    public static Diagram BuildTypeDiagram(ProjectModel model, string typeName, int maxNodes)
+    public static Diagram BuildTypeDiagram(ProjectModel model, IReadOnlyList<CallEdge> calls, string typeName, int maxNodes)
     {
         var bySlug = model.Files.ToDictionary(f => f.Slug, StringComparer.Ordinal);
-        var edges = model.Calls.Where(e => e.CallerType == typeName || e.CalleeType == typeName).ToList();
+        var edges = calls.Where(e => e.CallerType == typeName || e.CalleeType == typeName).ToList();
 
         var nodes = new List<DiagramNode>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         void AddNode(string slug, string type, string method)
         {
-            var id = $"m:{type}.{method}";
+            var id = $"m:{slug}:{type}.{method}";
             if (!seen.Add(id)) { return; }
             var rel = bySlug.TryGetValue(slug, out var f) ? f.RelPath : "";
             var css = type == typeName ? "typenode" : "file";
@@ -95,7 +101,7 @@ means several declared methods matched (ambiguous); very common names like <code
         }
 
         var dEdges = edges
-            .Select(e => new DiagramEdge($"m:{e.CallerType}.{e.CallerMethod}", $"m:{e.CalleeType}.{e.CalleeMethod}", "", e.Ambiguous))
+            .Select(e => new DiagramEdge($"m:{e.CallerSlug}:{e.CallerType}.{e.CallerMethod}", $"m:{e.CalleeSlug}:{e.CalleeType}.{e.CalleeMethod}", "", e.Ambiguous))
             .DistinctBy(x => (x.FromId, x.ToId))
             .ToList();
 

@@ -16,6 +16,11 @@ public sealed record ProjectModel
 
     /// <summary>How to link nodes back to source; null = no source configured.</summary>
     public SourceLink? SourceLink { get; init; }
+
+    /// <summary>Author-written project overview from the descriptions sidecar (empty = none). Additive.</summary>
+    public string Description { get; init; } = "";
+    /// <summary>Author-written folder descriptions, keyed by source-root-relative folder path. Additive.</summary>
+    public Dictionary<string, string> FolderDescriptions { get; init; } = [];
 }
 
 /// <summary>One source/config file in the scanned tree.</summary>
@@ -26,6 +31,8 @@ public sealed record FileNode
     public required string Language { get; init; }
     public long SizeBytes { get; init; }
     public int Loc { get; init; }
+    /// <summary>True when the file looks like automated-test code (hidden by default in the viewer). Additive.</summary>
+    public bool IsTest { get; init; }
     public string Purpose { get; set; } = "";
     public string PurposeSource { get; set; } = "";
     public List<string> Imports { get; init; } = [];
@@ -33,8 +40,9 @@ public sealed record FileNode
     public List<TodoItem> Todos { get; init; } = [];
 }
 
-/// <summary>A TODO/FIXME/HACK/BUG/XXX marker found in a source comment.</summary>
-public sealed record TodoItem(int Line, string Tag, string Text);
+/// <summary>A TODO/FIXME/HACK/BUG/XXX marker found in a source comment. <see cref="Author"/>
+/// is an attribution — a leading "(name)" or a "#123" ticket reference — or empty.</summary>
+public sealed record TodoItem(int Line, string Tag, string Text, string Author = "");
 
 public sealed record TypeInfo
 {
@@ -45,12 +53,21 @@ public sealed record TypeInfo
     public List<string> BaseTypes { get; init; } = [];
     public string XmlSummary { get; init; } = "";
     public List<MethodInfo> Methods { get; init; } = [];
+    /// <summary>Property/indexer signatures ("Name : Type"), for the data-shape view. Additive.</summary>
+    public List<string> Properties { get; init; } = [];
+    /// <summary>Field signatures ("name : Type"), for the data-shape view. Additive.</summary>
+    public List<string> Fields { get; init; } = [];
 }
 
 public sealed record MethodInfo
 {
     public required string Name { get; init; }
     public int Arity { get; init; }
+    /// <summary>Smallest legal call argument count (required, non-optional params). Additive.</summary>
+    public int MinArity { get; init; }
+    /// <summary>Largest legal call argument count (total params, or <see cref="int.MaxValue"/>
+    /// when the last parameter is <c>params</c>). Additive; defaults track <see cref="Arity"/>.</summary>
+    public int MaxArity { get; init; }
     public string Signature { get; init; } = "";
     public string XmlSummary { get; init; } = "";
     /// <summary>Cyclomatic complexity: 1 + count of decision points (see ComplexityMetrics).</summary>

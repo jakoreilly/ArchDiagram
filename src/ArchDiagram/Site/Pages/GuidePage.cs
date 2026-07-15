@@ -14,6 +14,8 @@ public static class GuidePage
         ("index.html", "Overview", "Size, language mix, the top-level architecture diagram, and any scan diagnostics."),
         ("structure.html", "Structure", "The full folder/file tree — expand and filter it, then click a file for its detail page."),
         ("dependencies.html", "Dependencies", "Which files and folders import each other, and which external packages are used."),
+        ("modules.html", "Modules", "Files grouped into modules (namespace or folder) and the dependencies between whole modules — the mid-level view, with a coupling matrix."),
+        ("metrics.html", "Metrics", "Architecture health per module: coupling (Ca/Ce), Instability, Abstractness, Distance from the main sequence, propagation cost and dependency cycles (heuristic, module level)."),
         ("graph.html", "Graph (3D)", "An interactive WebGL force-directed dependency graph. Click a node to focus it and unfold its neighbours; colour = folder, size = coupling, dashed edges = heuristic calls."),
         ("types.html", "Types & Members", "Every C# type and method found by syntax-only parsing, grouped by namespace."),
         ("calls.html", "Call Graph", "Method-to-method calls per type (heuristic — matched by name + parameter count)."),

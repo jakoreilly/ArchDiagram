@@ -65,7 +65,7 @@ TODO/FIXME left in comments. High fan-in files are risky to change; high fan-out
         sb.Append("<table class=\"grid\"><thead><tr><th>File</th><th>Language</th><th>LOC</th><th>Size</th><th>Types</th><th>Methods</th></tr></thead><tbody>");
         foreach (var f in model.Files.OrderByDescending(f => f.Loc).Take(20))
         {
-            sb.Append($"<tr><td><a href=\"files/{f.Slug}.html\">{Html.Encode(f.RelPath)}</a></td>" +
+            sb.Append($"<tr{(f.IsTest ? " data-test=\"1\"" : "")}><td><a href=\"files/{f.Slug}.html\">{Html.Encode(f.RelPath)}</a></td>" +
                       $"<td>{Html.Encode(f.Language)}</td><td>{f.Loc:N0}</td><td>{StructurePage.FormatBytes(f.SizeBytes)}</td>" +
                       $"<td>{f.Types.Count:N0}</td><td>{f.Types.Sum(t => t.Methods.Count):N0}</td></tr>");
         }
@@ -87,6 +87,8 @@ TODO/FIXME left in comments. High fan-in files are risky to change; high fan-out
             if (external.Count > 40) { sb.Append($"<p class=\"note\">{external.Count - 40} more in model.json.</p>"); }
         }
 
+        AppendOrphans(sb, model);
+
         // TODOs.
         sb.Append($"<h2>TODO / FIXME markers <span class=\"badge warn\">{todoCount}</span></h2>");
         if (todoCount == 0)
@@ -103,7 +105,8 @@ TODO/FIXME left in comments. High fan-in files are risky to change; high fan-out
                 {
                     if (++shown > 200) { break; }
                     var cls = t.Tag is "FIXME" or "BUG" ? "warn" : "";
-                    sb.Append($"<tr><td><span class=\"badge {cls}\">{Html.Encode(t.Tag)}</span></td><td>{Html.Encode(t.Text)}</td>" +
+                    var attribution = t.Author.Length > 0 ? $" <span class=\"badge accent\">{Html.Encode(t.Author)}</span>" : "";
+                    sb.Append($"<tr{(f.IsTest ? " data-test=\"1\"" : "")}><td><span class=\"badge {cls}\">{Html.Encode(t.Tag)}</span></td><td>{Html.Encode(t.Text)}{attribution}</td>" +
                               $"<td><a href=\"files/{f.Slug}.html\">{Html.Encode(f.RelPath)}</a></td><td>{t.Line}</td></tr>");
                 }
                 if (shown > 200) { break; }
@@ -144,7 +147,7 @@ Only C# methods are scored.</p>
                   "<th>Cyclomatic</th><th>Cognitive</th><th>Level</th></tr></thead><tbody>");
         foreach (var (file, type, method) in methods.Take(25))
         {
-            sb.Append($"<tr><td><a href=\"files/{file.Slug}.html\">{Html.Encode(method.Name)}</a></td>" +
+            sb.Append($"<tr{(file.IsTest ? " data-test=\"1\"" : "")}><td><a href=\"files/{file.Slug}.html\">{Html.Encode(method.Name)}</a></td>" +
                       $"<td><a href=\"files/{file.Slug}.html\">{Html.Encode(file.RelPath)}</a></td>" +
                       $"<td>{Html.Encode(type.Name)}</td>" +
                       $"<td>{method.Cyclomatic:N0}</td><td>{method.Cognitive:N0}</td>" +
@@ -152,6 +155,43 @@ Only C# methods are scored.</p>
         }
         sb.Append("</tbody></table>");
         if (methods.Count > 25) { sb.Append($"<p class=\"note\">{methods.Count - 25} more scored methods in model.json.</p>"); }
+    }
+
+    /// <summary>Files with no incoming or outgoing internal import links — candidates for dead
+    /// code (or genuinely standalone entry points/config). Only shown when the codebase has
+    /// import links at all, so a language we don't resolve imports for doesn't flag everything.</summary>
+    private static void AppendOrphans(StringBuilder sb, ProjectModel model)
+    {
+        if (model.FileDependencies.Count(e => e.ToSlug.Length > 0) == 0) { return; }
+
+        var connected = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var e in model.FileDependencies)
+        {
+            if (e.ToSlug.Length == 0) { continue; }
+            connected.Add(e.FromSlug);
+            connected.Add(e.ToSlug);
+        }
+        var orphans = model.Files
+            .Where(f => !connected.Contains(f.Slug))
+            .OrderBy(f => f.RelPath, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        sb.Append($"<h2>Unreferenced files <span class=\"badge\">{orphans.Count}</span></h2>");
+        sb.Append("<p class=\"lede\">Files with no incoming or outgoing links in the internal import graph. "
+                + "Many are legitimately standalone (entry points, config, docs), but this is where dead code hides.</p>");
+        if (orphans.Count == 0)
+        {
+            sb.Append("<div class=\"panel empty-state\"><div class=\"big\">✓</div><p>Every file is connected to at least one other. No obvious orphans.</p></div>");
+            return;
+        }
+        sb.Append("<table class=\"grid\"><thead><tr><th>File</th><th>Language</th><th>LOC</th><th>Purpose</th></tr></thead><tbody>");
+        foreach (var f in orphans.Take(100))
+        {
+            sb.Append($"<tr{(f.IsTest ? " data-test=\"1\"" : "")}><td><a href=\"files/{f.Slug}.html\">{Html.Encode(f.RelPath)}</a></td>" +
+                      $"<td>{Html.Encode(f.Language)}</td><td>{f.Loc:N0}</td><td>{Html.Encode(f.Purpose)}</td></tr>");
+        }
+        sb.Append("</tbody></table>");
+        if (orphans.Count > 100) { sb.Append($"<p class=\"note\">{orphans.Count - 100} more in model.json.</p>"); }
     }
 
     private static void Tile(StringBuilder sb, string num, string label) =>
@@ -166,7 +206,7 @@ Only C# methods are scored.</p>
         {
             var f = bySlug.GetValueOrDefault(slug);
             if (f is null) { continue; }
-            sb.Append($"<tr><td><a href=\"files/{f.Slug}.html\" title=\"{Html.Encode(f.Purpose)}\">{Html.Encode(f.RelPath)}</a></td>" +
+            sb.Append($"<tr{(f.IsTest ? " data-test=\"1\"" : "")}><td><a href=\"files/{f.Slug}.html\" title=\"{Html.Encode(f.Purpose)}\">{Html.Encode(f.RelPath)}</a></td>" +
                       $"<td>{verb} {count:N0}</td></tr>");
         }
         sb.Append("</tbody></table></div>");

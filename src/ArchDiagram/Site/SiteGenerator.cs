@@ -34,9 +34,17 @@ public static class SiteGenerator
             PageTemplate.Crumbs(("index.html", "Overview"), (null, "Dependencies")),
             DependenciesPage.Body(model, maxNodes));
 
+        WritePage(outDir, "modules.html", "Modules", model, "modules.html", "",
+            PageTemplate.Crumbs(("index.html", "Overview"), (null, "Modules")),
+            ModulesPage.Body(model, maxNodes));
+
+        WritePage(outDir, "metrics.html", "Architecture Metrics", model, "metrics.html", "",
+            PageTemplate.Crumbs(("index.html", "Overview"), (null, "Metrics")),
+            MetricsPage.Body(model));
+
         WritePage(outDir, "types.html", "Types & Members", model, "types.html", "",
             PageTemplate.Crumbs(("index.html", "Overview"), (null, "Types & Members")),
-            TypesPage.Body(model));
+            TypesPage.Body(model, maxNodes));
 
         WritePage(outDir, "calls.html", "Call Graph", model, "calls.html", "",
             PageTemplate.Crumbs(("index.html", "Overview"), (null, "Call Graph")),

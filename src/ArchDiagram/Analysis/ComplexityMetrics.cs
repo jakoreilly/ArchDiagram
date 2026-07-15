@@ -33,7 +33,9 @@ internal static class ComplexityMetrics
                 case ForEachStatementSyntax:
                 case CaseSwitchLabelSyntax:
                 case CasePatternSwitchLabelSyntax:
-                case SwitchExpressionArmSyntax:
+                // The `_ =>` default arm is not a branch, matching how the switch-*statement*
+                // `default:` (DefaultSwitchLabelSyntax) is already excluded above.
+                case SwitchExpressionArmSyntax arm when arm.Pattern is not DiscardPatternSyntax:
                 case CatchClauseSyntax:
                 case ConditionalExpressionSyntax:
                     count++;

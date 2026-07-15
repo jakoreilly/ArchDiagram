@@ -19,13 +19,15 @@ public sealed record CliOptions
     public string SourceLinkBase { get; init; } = "";
     /// <summary>Branch/tag/commit for web source links (ignored for local).</summary>
     public string SourceLinkRef { get; init; } = "main";
+    /// <summary>Optional path to an authored descriptions sidecar; null probes the source root.</summary>
+    public string? DescriptionsPath { get; init; }
 
     public static CliOptions? Parse(string[] args, out int exitCode)
     {
         exitCode = 0;
         if (args.Length == 0 || args[0] is "-h" or "--help")
         {
-            Console.Error.WriteLine("Usage: archdiagram <path-to-project> [--out <dir>] [--no-open] [--max-nodes <n>] [--exclude <dirname>]... [--no-complexity] [--no-snippets] [--no-wiki] [--source-link-type <github|gitlab|local>] [--source-link-base <url>] [--source-link-ref <branch>]");
+            Console.Error.WriteLine("Usage: archdiagram <path-to-project> [--out <dir>] [--no-open] [--max-nodes <n>] [--exclude <dirname>]... [--no-complexity] [--no-snippets] [--no-wiki] [--source-link-type <github|gitlab|local>] [--source-link-base <url>] [--source-link-ref <branch>] [--descriptions <path>]");
             exitCode = args.Length == 0 ? 2 : 0;
             return null;
         }
@@ -48,6 +50,7 @@ public sealed record CliOptions
         var slType = "none";
         var slBase = "";
         var slRef = "main";
+        string? descriptionsPath = null;
         for (var i = 1; i < args.Length; i++)
         {
             if (args[i] == "--out" && i + 1 < args.Length) { outDir = args[++i]; }
@@ -60,6 +63,7 @@ public sealed record CliOptions
             else if (args[i] == "--source-link-type" && i + 1 < args.Length) { slType = args[++i]; }
             else if (args[i] == "--source-link-base" && i + 1 < args.Length) { slBase = args[++i]; }
             else if (args[i] == "--source-link-ref" && i + 1 < args.Length) { slRef = args[++i]; }
+            else if (args[i] == "--descriptions" && i + 1 < args.Length) { descriptionsPath = args[++i]; }
             else
             {
                 Console.Error.WriteLine($"error: unknown argument '{args[i]}'.");
@@ -85,6 +89,7 @@ public sealed record CliOptions
             SourceLinkType = slType,
             SourceLinkBase = slBase,
             SourceLinkRef = slRef,
+            DescriptionsPath = descriptionsPath,
         };
     }
 

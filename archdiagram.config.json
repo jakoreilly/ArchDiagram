@@ -31,6 +31,9 @@
   "SourceLinkBase": "",
   "SourceLinkRef": "main",
 
+  "//descriptions": "Optional path to an authored descriptions sidecar (JSON: { \"project\": \"...\", \"files\": { \"src/Foo.cs\": \"...\", \"src/Bar/\": \"folder note\" } }). These override the heuristic purpose text and add an 'About this project' panel. Leave blank to let each scanned source auto-discover its own archdiagram.descriptions.json at its root.",
+  "DescriptionsFile": "",
+
   "//landscape": "Set true (or run Launch-ArchDiagram.ps1 -Landscape) to skip scanning and instead cross-reference every already-generated site-*/model.json in this folder into a parent viewer at site-landscape.",
   "Landscape": false,
 

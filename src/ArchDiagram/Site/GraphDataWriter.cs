@@ -66,28 +66,8 @@ public static class GraphDataWriter
         return JsonSerializer.Serialize(payload, ModelJsonWriter.Options);
     }
 
-    /// <summary>Heuristic: does this file look like automated-test code? Path-based
-    /// (folder named test/tests/spec, or filename ending Tests/Test/Spec, or a
-    /// .test/.spec segment). Plain string ops only (no regex). Mirrors the folder
-    /// heuristic in PurposeHeuristics.</summary>
-    public static bool IsTestFile(string relPath)
-    {
-        var p = relPath.Replace('\\', '/');
-        foreach (var seg in p.Split('/'))
-        {
-            var s = seg.ToLowerInvariant();
-            if (s is "test" or "tests" or "spec" or "specs" or "__tests__") { return true; }
-        }
-        var name = p[(p.LastIndexOf('/') + 1)..];
-        var dot = name.LastIndexOf('.');
-        var stem = dot > 0 ? name[..dot] : name; // keep original case for boundary detection
-        // PascalCase C# convention (FooTests / FooTest / FooSpec) — case-sensitive so
-        // "contest" (lowercase) is not mistaken for a "…Test" suffix.
-        if (stem.EndsWith("Tests") || stem.EndsWith("Test") || stem.EndsWith("Spec")) { return true; }
-        // Lower-case JS/TS/Go/Python conventions with an explicit separator boundary.
-        var s2 = stem.ToLowerInvariant();
-        return s2.Contains(".test") || s2.Contains(".spec")
-            || s2.Contains("_test") || s2.Contains("_spec")
-            || s2.StartsWith("test_") || s2.StartsWith("spec_");
-    }
+    /// <summary>Does this file look like automated-test code? Delegates to the single
+    /// site-wide detector so the 3D graph hides exactly the same files as the tree,
+    /// tables, treemap and call graph.</summary>
+    public static bool IsTestFile(string relPath) => Analysis.TestDetection.IsTest(relPath);
 }

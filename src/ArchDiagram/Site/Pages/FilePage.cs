@@ -31,6 +31,11 @@ public static class FilePage
         }
 
         sb.Append("<div class=\"tiles\">");
+        var owningProject = OwningProject(model, file.RelPath);
+        if (owningProject.Length > 0)
+        {
+            sb.Append($"<div class=\"tile\"><div class=\"num\" style=\"font-size:1.1rem\">{Html.Encode(owningProject)}</div><div class=\"lbl\">Project</div></div>");
+        }
         sb.Append($"<div class=\"tile\"><div class=\"num\">{Html.Encode(file.Language)}</div><div class=\"lbl\">Language</div></div>");
         sb.Append($"<div class=\"tile\"><div class=\"num\">{file.Loc:N0}</div><div class=\"lbl\">Lines</div></div>");
         sb.Append($"<div class=\"tile\"><div class=\"num\">{StructurePage.FormatBytes(file.SizeBytes)}</div><div class=\"lbl\">Size</div></div>");
@@ -40,7 +45,10 @@ public static class FilePage
 
         if (file.Purpose.Length > 0)
         {
-            sb.Append($"<div class=\"panel\"><strong>Purpose</strong> <span class=\"badge warn\" title=\"Derived automatically — not hand-written documentation\">heuristic · {Html.Encode(file.PurposeSource)}</span><p style=\"margin:.4rem 0 0\">{Html.Encode(file.Purpose)}</p></div>");
+            var badge = file.PurposeSource == "authored"
+                ? "<span class=\"badge accent\" title=\"Hand-written in the descriptions sidecar\">authored</span>"
+                : $"<span class=\"badge warn\" title=\"Derived automatically — not hand-written documentation\">heuristic · {Html.Encode(file.PurposeSource)}</span>";
+            sb.Append($"<div class=\"panel\"><strong>Purpose</strong> {badge}<p style=\"margin:.4rem 0 0\">{Html.Encode(file.Purpose)}</p></div>");
         }
 
         // Mini dependency diagram: this file + direct neighbours.
@@ -67,7 +75,8 @@ public static class FilePage
             foreach (var t in file.Todos)
             {
                 var cls = t.Tag is "FIXME" or "BUG" ? "warn" : "";
-                sb.Append($"<tr><td><span class=\"badge {cls}\">{Html.Encode(t.Tag)}</span></td><td>{t.Line}</td><td>{Html.Encode(t.Text)}</td></tr>");
+                var attribution = t.Author.Length > 0 ? $" <span class=\"badge accent\">{Html.Encode(t.Author)}</span>" : "";
+                sb.Append($"<tr><td><span class=\"badge {cls}\">{Html.Encode(t.Tag)}</span></td><td>{t.Line}</td><td>{Html.Encode(t.Text)}{attribution}</td></tr>");
             }
             sb.Append("</tbody></table>");
         }
@@ -170,6 +179,21 @@ public static class FilePage
     {
         try { return File.ReadAllLines(Path.Combine(sourceRoot, relPath.Replace('/', Path.DirectorySeparatorChar))); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { return null; }
+    }
+
+    /// <summary>Name of the .NET project whose folder most closely encloses this file, or "".</summary>
+    private static string OwningProject(ProjectModel model, string relPath)
+    {
+        var best = "";
+        var bestLen = -1;
+        foreach (var p in model.Projects)
+        {
+            var idx = p.RelPath.LastIndexOf('/');
+            var dir = idx < 0 ? "" : p.RelPath[..idx];
+            var underDir = dir.Length == 0 || relPath.StartsWith(dir + "/", StringComparison.OrdinalIgnoreCase);
+            if (underDir && dir.Length > bestLen) { best = p.Name; bestLen = dir.Length; }
+        }
+        return best;
     }
 
     private static string FileLink(FileNode? f) =>

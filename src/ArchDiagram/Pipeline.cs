@@ -10,11 +10,22 @@ namespace ArchDiagram;
 public static class Pipeline
 {
     private const long MaxAnalyzeBytes = 1024 * 1024; // skip deep analysis beyond 1 MB
+    private const long EstimatedBytesPerLine = 40;     // rough LOC estimate for size-skipped files
+
+    /// <summary>Lines in a text: newline count, plus one for a final unterminated line.
+    /// A file ending in "\n" has exactly newline-count lines (no phantom trailing line).</summary>
+    internal static int CountLines(string content)
+    {
+        if (content.Length == 0) { return 0; }
+        var newlines = content.Count(c => c == '\n');
+        return content[^1] == '\n' ? newlines : newlines + 1;
+    }
 
     public static ProjectModel BuildModel(CliOptions options)
     {
         var diagnostics = new List<string>();
         var entries = FileSystemScanner.Scan(options.SourcePath, options.Exclude, diagnostics);
+        var authored = DescriptionsLoader.Load(options.DescriptionsPath, options.SourcePath, diagnostics);
 
         var csharp = new CSharpSyntaxAnalyzer();
         var csharpFallback = new CSharpUsingAnalyzer();
@@ -37,7 +48,7 @@ public static class Pipeline
                 try
                 {
                     content = File.ReadAllText(entry.AbsPath);
-                    loc = content.Length == 0 ? 0 : content.Count(c => c == '\n') + 1;
+                    loc = CountLines(content);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
@@ -47,7 +58,10 @@ public static class Pipeline
             }
             else if (language != "Other")
             {
-                diagnostics.Add($"Skipped deep analysis of {entry.RelPath} ({StructurePageBytes(entry.SizeBytes)} exceeds 1 MB limit).");
+                // Too big to parse, but still a known-language source: estimate LOC from
+                // size (deterministic) so it isn't dropped from totals and "largest files".
+                loc = (int)(entry.SizeBytes / EstimatedBytesPerLine);
+                diagnostics.Add($"Skipped deep analysis of {entry.RelPath} ({StructurePageBytes(entry.SizeBytes)} exceeds 1 MB limit); LOC estimated from size.");
             }
 
             FileFacts facts = new() { Language = language };
@@ -79,11 +93,18 @@ public static class Pipeline
                 Language = facts.Language,
                 SizeBytes = entry.SizeBytes,
                 Loc = loc,
+                IsTest = TestDetection.IsTest(entry.RelPath),
                 Imports = facts.Imports,
                 Types = facts.Types,
-                Todos = analyzable && content.Length > 0 ? TodoScanner.Scan(content) : [],
+                Todos = analyzable && content.Length > 0 ? TodoScanner.Scan(content, facts.Language) : [],
             };
             PurposeHeuristics.Apply(node, content);
+            // Authored file description (from the sidecar) wins over the heuristic purpose.
+            if (authored.Files.TryGetValue(entry.RelPath, out var authoredPurpose))
+            {
+                node.Purpose = authoredPurpose;
+                node.PurposeSource = "authored";
+            }
             files.Add(node);
 
             if (loc > 0) { languageLoc[facts.Language] = languageLoc.GetValueOrDefault(facts.Language) + loc; }
@@ -108,6 +129,8 @@ public static class Pipeline
             Calls = calls,
             Diagnostics = diagnostics,
             LanguageLoc = languageLoc,
+            Description = authored.Project,
+            FolderDescriptions = new Dictionary<string, string>(authored.Folders, StringComparer.OrdinalIgnoreCase),
             SourceLink = options.SourceLinkType is "none" or ""
                 ? null
                 : new SourceLink { Type = options.SourceLinkType, Base = options.SourceLinkBase, Ref = options.SourceLinkRef },

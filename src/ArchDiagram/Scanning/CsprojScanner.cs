@@ -25,6 +25,21 @@ public static class CsprojScanner
             byPath[Path.GetFullPath(f.AbsPath)] = Path.GetFileNameWithoutExtension(f.AbsPath);
         }
 
+        // Prefix (root-relative folder) of each project, longest first, so a .cs file nested
+        // under two projects is attributed only to the nearest-enclosing one (B10).
+        var projectPrefixes = csprojFiles
+            .Select(f =>
+            {
+                var prefix = Path.GetRelativePath(root, Path.GetDirectoryName(f.AbsPath)!).Replace('\\', '/');
+                return (Id: f.RelPath, Prefix: prefix == "." ? "" : prefix);
+            })
+            .OrderByDescending(p => p.Prefix.Length)
+            .ToList();
+
+        string? OwningProject(string csRelPath) => projectPrefixes
+            .FirstOrDefault(p => p.Prefix.Length == 0 || csRelPath.StartsWith(p.Prefix + "/", StringComparison.OrdinalIgnoreCase))
+            .Id;
+
         var results = new List<CsprojInfo>();
         foreach (var f in csprojFiles)
         {
@@ -56,12 +71,10 @@ public static class CsprojScanner
                 diagnostics.Add($"Could not parse {f.RelPath}: {ex.Message}");
             }
 
-            // Connection strings from .cs files under this project's folder.
+            // Connection strings from .cs files this project owns (nearest-enclosing, B10).
             var dbUses = new List<DbUse>();
-            var projectPrefix = Path.GetRelativePath(root, dir).Replace('\\', '/');
-            if (projectPrefix == ".") { projectPrefix = ""; }
             foreach (var cs in files.Where(x => x.Extension == ".cs" &&
-                         (projectPrefix.Length == 0 || x.RelPath.StartsWith(projectPrefix + "/", StringComparison.OrdinalIgnoreCase))))
+                         string.Equals(OwningProject(x.RelPath), f.RelPath, StringComparison.OrdinalIgnoreCase)))
             {
                 string text;
                 try { text = File.ReadAllText(cs.AbsPath); }

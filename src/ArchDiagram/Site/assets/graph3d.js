@@ -369,7 +369,16 @@
     }
     if (colorEl && p.color) { colorEl.value = p.color; }
     colorMode = colorEl ? colorEl.value : "coupling";
-    if (hideTestsEl && typeof p.hideTests === "boolean") { hideTestsEl.checked = p.hideTests; }
+    if (hideTestsEl) {
+      // Honour a per-graph choice if the user made one; otherwise follow the site-wide
+      // default (tests hidden unless the global 🧪 toggle turned them on).
+      if (typeof p.hideTests === "boolean") { hideTestsEl.checked = p.hideTests; }
+      else {
+        var showTests = null;
+        try { showTests = localStorage.getItem("archdiagram-show-tests"); } catch (e) { }
+        hideTestsEl.checked = showTests !== "1";
+      }
+    }
     if (callsEl && typeof p.showCalls === "boolean") { callsEl.checked = p.showCalls; }
     if (importsEl && typeof p.showImports === "boolean") { importsEl.checked = p.showImports; }
     if (degreeModeEl && p.degreeMode) { degreeModeEl.value = p.degreeMode; }

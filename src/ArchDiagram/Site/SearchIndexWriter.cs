@@ -15,26 +15,34 @@ public static class SearchIndexWriter
     {
         var entries = new List<string[]>();
 
+        // Files first (the smoke test asserts an entry per file), then types, then methods,
+        // stopping the instant the cap is hit so a huge codebase can't bloat every page load.
+        bool AtCap() => entries.Count >= MaxEntries;
+
         foreach (var f in model.Files)
         {
+            if (AtCap()) { break; }
             entries.Add(["file", f.RelPath, f.Purpose, $"files/{f.Slug}.html"]);
         }
         foreach (var f in model.Files)
         {
+            if (AtCap()) { break; }
             foreach (var t in f.Types)
             {
-                if (entries.Count >= MaxEntries) { break; }
+                if (AtCap()) { break; }
                 var full = t.Namespace.Length > 0 ? $"{t.Namespace}.{t.Name}" : t.Name;
                 entries.Add([t.Kind, full, f.RelPath, $"files/{f.Slug}.html"]);
             }
         }
         foreach (var f in model.Files)
         {
+            if (AtCap()) { break; }
             foreach (var t in f.Types)
             {
+                if (AtCap()) { break; }
                 foreach (var m in t.Methods)
                 {
-                    if (entries.Count >= MaxEntries) { break; }
+                    if (AtCap()) { break; }
                     entries.Add(["method", $"{t.Name}.{m.Name}", m.Signature, $"files/{f.Slug}.html"]);
                 }
             }

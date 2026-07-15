@@ -83,13 +83,19 @@ if ($cfg.SourceLinkBase) { $SourceLinkBase = [string]$cfg.SourceLinkBase }
 $SourceLinkRef = ''
 if ($cfg.SourceLinkRef) { $SourceLinkRef = [string]$cfg.SourceLinkRef }
 
-# Builds the shared scan-time arguments (exclude dirs + source linking) appended
+# Optional path to an authored descriptions sidecar (archdiagram.descriptions.json). Leave
+# blank to let each scanned source auto-discover its own sidecar at its root.
+$DescriptionsFile = ''
+if ($cfg.DescriptionsFile) { $DescriptionsFile = [string]$cfg.DescriptionsFile }
+
+# Builds the shared scan-time arguments (exclude dirs + source linking + descriptions) appended
 # to both the group scan path and the single-project run.
 function Add-CommonScanArgs($argList) {
     foreach ($ex in $Exclude) { if ($ex) { $argList += @('--exclude', [string]$ex) } }
     if ($SourceLinkType) { $argList += @('--source-link-type', $SourceLinkType) }
     if ($SourceLinkBase) { $argList += @('--source-link-base', $SourceLinkBase) }
     if ($SourceLinkRef)  { $argList += @('--source-link-ref', $SourceLinkRef) }
+    if ($DescriptionsFile) { $argList += @('--descriptions', $DescriptionsFile) }
     return $argList
 }
 

@@ -15,13 +15,23 @@ public static class FileSystemScanner
         foreach (var s in extraSkips ?? []) { skips.Add(s); }
 
         var results = new List<FileEntry>();
-        Walk(root, root, skips, results, diagnostics);
+        // Canonical (resolved) directory paths already visited — guards against symlink /
+        // junction cycles that would otherwise recurse forever and blow the stack.
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        Walk(root, root, skips, results, diagnostics, visited);
         results.Sort((a, b) => string.Compare(a.RelPath, b.RelPath, StringComparison.OrdinalIgnoreCase));
         return results;
     }
 
-    private static void Walk(string dir, string root, HashSet<string> skips, List<FileEntry> results, List<string>? diagnostics)
+    private static void Walk(string dir, string root, HashSet<string> skips, List<FileEntry> results, List<string>? diagnostics, HashSet<string> visited)
     {
+        try
+        {
+            var canonical = Path.TrimEndingDirectorySeparator(Path.GetFullPath(new DirectoryInfo(dir).FullName));
+            if (!visited.Add(canonical)) { return; } // already walked (cycle) — stop
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { return; }
+
         IEnumerable<string> entries;
         try { entries = Directory.EnumerateFileSystemEntries(dir); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -34,7 +44,10 @@ public static class FileSystemScanner
         {
             if (Directory.Exists(entry))
             {
-                if (!skips.Contains(Path.GetFileName(entry))) { Walk(entry, root, skips, results, diagnostics); }
+                // Skip reparse points (symlinks/junctions) outright — they are the usual
+                // source of scan cycles and duplicated subtrees.
+                if (IsReparsePoint(entry)) { continue; }
+                if (!skips.Contains(Path.GetFileName(entry))) { Walk(entry, root, skips, results, diagnostics, visited); }
                 continue;
             }
 
@@ -45,5 +58,11 @@ public static class FileSystemScanner
             var rel = Path.GetRelativePath(root, entry).Replace('\\', '/');
             results.Add(new FileEntry(entry, rel, Path.GetExtension(entry).ToLowerInvariant(), size));
         }
+    }
+
+    private static bool IsReparsePoint(string path)
+    {
+        try { return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
     }
 }

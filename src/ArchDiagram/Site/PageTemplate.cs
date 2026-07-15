@@ -20,6 +20,8 @@ public static class PageTemplate
         ("guide.html", "Guide", "❓"),
         ("structure.html", "Structure", "🗀"),
         ("dependencies.html", "Dependencies", "⇄"),
+        ("modules.html", "Modules", "⬡"),
+        ("metrics.html", "Metrics", "📐"),
         ("graph.html", "Graph (3D)", "🕸"),
         ("types.html", "Types & Members", "❖"),
         ("calls.html", "Call Graph", "☎"),
@@ -58,6 +60,10 @@ public static class PageTemplate
   try { t = localStorage.getItem("archdiagram-theme"); } catch (e) { }
   if (!t) { t = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"; }
   document.documentElement.setAttribute("data-theme", t);
+  // Test files are hidden by default; apply the class pre-paint to avoid a flash.
+  var showTests = null;
+  try { showTests = localStorage.getItem("archdiagram-show-tests"); } catch (e) { }
+  if (showTests !== "1") { document.documentElement.classList.add("hide-tests"); }
 })();
 </script>
 </head>
@@ -70,6 +76,7 @@ public static class PageTemplate
 {{nav}}    </nav>
     <div class="sidebar-foot">
       <button class="btn theme-toggle" id="theme-toggle" type="button" title="Switch between light and dark theme">◐ Theme</button>
+      <button class="btn" id="tests-toggle" type="button" title="Show or hide test files across the site">🧪 Tests: hidden</button>
     </div>
   </aside>
   <main class="content">

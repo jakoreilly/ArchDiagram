@@ -132,6 +132,11 @@
 
     attachTooltips(card, svg);
 
+    // Auto-fit once the SVG has laid out so the whole diagram is visible on load
+    // without clicking Fit. Double rAF lets mermaid's SVG size settle before measuring.
+    // Only ever runs for a rendered (visible) card, so the stage has real dimensions.
+    requestAnimationFrame(function () { requestAnimationFrame(fit); });
+
     function fallbackCopy(text) {
       var ta = document.createElement("textarea");
       ta.value = text;
@@ -279,6 +284,64 @@
       });
     };
   }
+
+  /* ---- Test-file visibility toggle ----
+     Tests are hidden by default (root class .hide-tests applied pre-paint in the template).
+     This button flips it, persists the choice, prunes now-empty structure-tree folders, and
+     keeps its own label in sync. Presentation only — nothing is removed from the model/search. */
+  (function () {
+    var btn = document.getElementById("tests-toggle");
+    if (!btn) { return; }
+    var root = document.documentElement;
+    var tree = document.getElementById("structure-tree");
+
+    function pruneTests() {
+      if (!tree) { return; }
+      var hiding = root.classList.contains("hide-tests");
+      // Deepest-first so a parent sees its children's already-computed hidden state.
+      var all = Array.prototype.slice.call(tree.querySelectorAll("details")).reverse();
+      all.forEach(function (d) {
+        if (!hiding) { d.hidden = false; return; }
+        var visibleFile = d.querySelector(":scope > ul > li[data-path]:not([data-test])");
+        var visibleChild = d.querySelector(":scope > details:not([hidden])");
+        d.hidden = !visibleFile && !visibleChild;
+      });
+    }
+
+    function pruneSections() {
+      // Hide a Types-page namespace section when all its type cards are test files.
+      var hiding = root.classList.contains("hide-tests");
+      document.querySelectorAll("section.ns-group").forEach(function (sec) {
+        if (!hiding) { sec.hidden = false; return; }
+        sec.hidden = !sec.querySelector(".type-card:not([data-test])");
+      });
+    }
+
+    function sync() {
+      var hidden = root.classList.contains("hide-tests");
+      btn.textContent = "🧪 Tests: " + (hidden ? "hidden" : "shown");
+      pruneTests();
+      pruneSections();
+    }
+
+    // Keep the 3D graph's own "Hide test files" checkbox in step with the global toggle
+    // (the graph is WebGL, not CSS, so the .hide-tests class can't reach it).
+    function syncGraph(hidden) {
+      var g3d = document.getElementById("g3d-hide-tests");
+      if (g3d && g3d.checked !== hidden) {
+        g3d.checked = hidden;
+        g3d.dispatchEvent(new Event("change"));
+      }
+    }
+
+    btn.onclick = function () {
+      var hidden = root.classList.toggle("hide-tests");
+      try { localStorage.setItem("archdiagram-show-tests", hidden ? "0" : "1"); } catch (e) { }
+      sync();
+      syncGraph(hidden);
+    };
+    sync();
+  })();
 
   /* ---- Ctrl+K search palette ---- */
   (function () {

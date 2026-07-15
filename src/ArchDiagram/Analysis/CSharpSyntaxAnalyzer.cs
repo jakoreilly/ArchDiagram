@@ -38,37 +38,47 @@ public sealed class CSharpSyntaxAnalyzer : ILanguageAnalyzer
             };
 
             var methods = new List<Graph.MethodInfo>();
+            var properties = new List<string>();
+            var fields = new List<string>();
             if (decl is TypeDeclarationSyntax typeDecl)
             {
                 foreach (var m in typeDecl.Members.OfType<MethodDeclarationSyntax>())
                 {
-                    methods.Add(new Graph.MethodInfo
-                    {
-                        Name = m.Identifier.Text,
-                        Arity = m.ParameterList.Parameters.Count,
-                        Signature = BuildSignature(m),
-                        XmlSummary = GetXmlSummary(m),
-                        Cyclomatic = ComplexityMetrics.Cyclomatic(m),
-                        Cognitive = ComplexityMetrics.Cognitive(m),
-                        StartLine = LineOf(m, first: true),
-                        EndLine = LineOf(m, first: false),
-                        Invocations = CollectInvocations(m),
-                    });
+                    methods.Add(BuildMethod(m.Identifier.Text, m.ParameterList.Parameters.Count, BuildSignature(m), m));
                 }
                 foreach (var c in typeDecl.Members.OfType<ConstructorDeclarationSyntax>())
                 {
-                    methods.Add(new Graph.MethodInfo
+                    var sig = $"{c.Identifier.Text}({string.Join(", ", c.ParameterList.Parameters.Select(p => p.Type?.ToString() ?? "?"))}) (constructor)";
+                    methods.Add(BuildMethod(c.Identifier.Text, c.ParameterList.Parameters.Count, sig, c));
+                }
+                // B5: operators/conversions carry real logic too.
+                foreach (var op in typeDecl.Members.OfType<OperatorDeclarationSyntax>())
+                {
+                    methods.Add(BuildMethod($"operator {op.OperatorToken.Text}", op.ParameterList.Parameters.Count,
+                        $"{op.ReturnType} operator {op.OperatorToken.Text}(...)", op));
+                }
+                foreach (var op in typeDecl.Members.OfType<ConversionOperatorDeclarationSyntax>())
+                {
+                    methods.Add(BuildMethod($"operator {op.Type}", op.ParameterList.Parameters.Count,
+                        $"operator {op.Type}(...)", op));
+                }
+                // B5: expression-bodied / accessor-bodied properties & indexers hold invocations
+                // and branching. Auto-properties (no executable code) are listed via F2 only.
+                foreach (var p in typeDecl.Members.OfType<BasePropertyDeclarationSyntax>())
+                {
+                    var pname = PropertyName(p);
+                    if (HasExecutableBody(p))
                     {
-                        Name = c.Identifier.Text,
-                        Arity = c.ParameterList.Parameters.Count,
-                        Signature = $"{c.Identifier.Text}({string.Join(", ", c.ParameterList.Parameters.Select(p => p.Type?.ToString() ?? "?"))}) (constructor)",
-                        XmlSummary = GetXmlSummary(c),
-                        Cyclomatic = ComplexityMetrics.Cyclomatic(c),
-                        Cognitive = ComplexityMetrics.Cognitive(c),
-                        StartLine = LineOf(c, first: true),
-                        EndLine = LineOf(c, first: false),
-                        Invocations = CollectInvocations(c),
-                    });
+                        methods.Add(BuildMethod(pname, 0, $"{p.Type} {pname} {{ … }}", p));
+                    }
+                    properties.Add($"{pname} : {p.Type}");
+                }
+                foreach (var fd in typeDecl.Members.OfType<FieldDeclarationSyntax>())
+                {
+                    foreach (var v in fd.Declaration.Variables)
+                    {
+                        fields.Add($"{v.Identifier.Text} : {fd.Declaration.Type}");
+                    }
                 }
             }
 
@@ -81,10 +91,97 @@ public sealed class CSharpSyntaxAnalyzer : ILanguageAnalyzer
                 BaseTypes = decl.BaseList?.Types.Select(t => t.Type.ToString()).ToList() ?? [],
                 XmlSummary = GetXmlSummary(decl),
                 Methods = methods,
+                Properties = properties,
+                Fields = fields,
+            });
+        }
+
+        // B5: top-level statements (Program.cs) declare no type, so their invocations and
+        // complexity were invisible. Synthesize a "<top-level>" type with a "<main>" member.
+        var globals = root.Members.OfType<GlobalStatementSyntax>().ToList();
+        if (globals.Count > 0)
+        {
+            var invocations = globals
+                .SelectMany(g => g.DescendantNodes().OfType<InvocationExpressionSyntax>())
+                .Select(inv => new Graph.InvocationRef(InvokedName(inv.Expression), inv.ArgumentList.Arguments.Count))
+                .Where(r => r.Name.Length > 0)
+                .Distinct()
+                .OrderBy(r => r.Name, StringComparer.Ordinal).ThenBy(r => r.Arity)
+                .ToList();
+            types.Add(new Graph.TypeInfo
+            {
+                Name = "<top-level>",
+                Kind = "top-level",
+                Namespace = "",
+                XmlSummary = "Top-level statements (program entry point).",
+                Methods =
+                [
+                    new Graph.MethodInfo
+                    {
+                        Name = "<main>",
+                        Arity = 0,
+                        Signature = "<top-level statements>",
+                        Cyclomatic = 1 + globals.Sum(g => ComplexityMetrics.Cyclomatic(g) - 1),
+                        Cognitive = globals.Sum(ComplexityMetrics.Cognitive),
+                        StartLine = LineOf(globals[0], first: true),
+                        EndLine = LineOf(globals[^1], first: false),
+                        Invocations = invocations,
+                    },
+                ],
             });
         }
 
         return new FileFacts { Language = "C#", Imports = imports, Types = types };
+    }
+
+    private static Graph.MethodInfo BuildMethod(string name, int arity, string signature, SyntaxNode decl)
+    {
+        var pl = (decl as BaseMethodDeclarationSyntax)?.ParameterList;
+        var (min, max) = ArityRange(pl, arity);
+        return new()
+        {
+            Name = name,
+            Arity = arity,
+            MinArity = min,
+            MaxArity = max,
+            Signature = signature,
+            XmlSummary = GetXmlSummary(decl),
+            Cyclomatic = ComplexityMetrics.Cyclomatic(decl),
+            Cognitive = ComplexityMetrics.Cognitive(decl),
+            StartLine = LineOf(decl, first: true),
+            EndLine = LineOf(decl, first: false),
+            Invocations = CollectInvocations(decl),
+        };
+    }
+
+    /// <summary>Legal call-argument range for a parameter list: min = required params
+    /// (no default, not <c>params</c>), max = total, or int.MaxValue when the last is
+    /// <c>params</c>. Lets the call graph match optional/params/named-arg calls (B6).</summary>
+    private static (int Min, int Max) ArityRange(ParameterListSyntax? pl, int arity)
+    {
+        if (pl is null) { return (arity, arity); }
+        var parameters = pl.Parameters;
+        var hasParamsArray = parameters.Count > 0 && parameters[^1].Modifiers.Any(SyntaxKind.ParamsKeyword);
+        var required = parameters.Count(p => p.Default is null && !p.Modifiers.Any(SyntaxKind.ParamsKeyword));
+        var max = hasParamsArray ? int.MaxValue : parameters.Count;
+        return (required, max);
+    }
+
+    private static string PropertyName(BasePropertyDeclarationSyntax p) => p switch
+    {
+        PropertyDeclarationSyntax pd => pd.Identifier.Text,
+        IndexerDeclarationSyntax => "this[]",
+        EventDeclarationSyntax ed => ed.Identifier.Text,
+        _ => "property",
+    };
+
+    /// <summary>True when the member has executable code: an expression body, or any accessor
+    /// with a block or expression body. Auto-properties (get; set;) return false.</summary>
+    private static bool HasExecutableBody(BasePropertyDeclarationSyntax p)
+    {
+        if (p is PropertyDeclarationSyntax { ExpressionBody: not null }) { return true; }
+        if (p is IndexerDeclarationSyntax { ExpressionBody: not null }) { return true; }
+        return p.AccessorList?.Accessors.Any(a => a.Body is not null || a.ExpressionBody is not null) ?? false;
     }
 
     private static string GetNamespace(SyntaxNode node)

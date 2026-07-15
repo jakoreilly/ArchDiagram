@@ -20,6 +20,16 @@ public static class MarkdownExporter
         sb.AppendLine($"> Analysis is heuristic (no compilation); see the HTML site for interactive diagrams.");
         sb.AppendLine();
 
+        sb.AppendLine("## Summary");
+        sb.AppendLine();
+        if (model.Description.Length > 0)
+        {
+            sb.AppendLine(model.Description);
+            sb.AppendLine();
+        }
+        sb.AppendLine(Analysis.NarrativeBuilder.ProjectSummary(model));
+        sb.AppendLine();
+
         sb.AppendLine("## At a glance");
         sb.AppendLine();
         sb.AppendLine("| Metric | Value |");
@@ -72,25 +82,38 @@ public static class MarkdownExporter
             sb.AppendLine();
         }
 
-        // Key files: highest fan-in with purposes.
-        var fanIn = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var e in model.FileDependencies.Where(e => e.ToSlug.Length > 0))
-        {
-            fanIn[e.ToSlug] = fanIn.GetValueOrDefault(e.ToSlug) + 1;
-        }
-        var bySlug = model.Files.ToDictionary(f => f.Slug, StringComparer.Ordinal);
-        var key = fanIn.OrderByDescending(kv => kv.Value).Take(10)
-            .Select(kv => (File: bySlug.GetValueOrDefault(kv.Key), Count: kv.Value))
-            .Where(x => x.File is not null).ToList();
+        // Key files: ranked by overall importance (fan-in, calls, entry points, size).
+        var key = Analysis.ImportanceScorer.Rank(model, 10);
         if (key.Count > 0)
         {
-            sb.AppendLine("## Key files (most depended-on)");
+            sb.AppendLine("## Key files (start here)");
             sb.AppendLine();
-            sb.AppendLine("| File | Imported by | Purpose |");
-            sb.AppendLine("|---|---|---|");
-            foreach (var (f, count) in key)
+            sb.AppendLine("| # | File | Why it matters | Imported by | Purpose |");
+            sb.AppendLine("|---|---|---|---|---|");
+            var rank = 0;
+            foreach (var s in key)
             {
-                sb.AppendLine($"| `{f!.RelPath}` | {count} files | {MdEscape(f.Purpose)} |");
+                rank++;
+                sb.AppendLine($"| {rank} | `{s.File.RelPath}` | {MdEscape(s.Reason)} | {s.FanIn} files | {MdEscape(s.File.Purpose)} |");
+            }
+            sb.AppendLine();
+        }
+
+        // Architecture metrics (module level, heuristic).
+        var metrics = Analysis.ArchitectureMetrics.Compute(model);
+        if (metrics.Modules.Count >= 2)
+        {
+            sb.AppendLine("## Architecture metrics");
+            sb.AppendLine();
+            sb.AppendLine($"Propagation cost: **{metrics.PropagationCost:P0}** · dependency cycles: **{metrics.Cycles.Count}** (module level, heuristic).");
+            sb.AppendLine();
+            sb.AppendLine("Highest distance from the main sequence (D = |A + I − 1|):");
+            sb.AppendLine();
+            sb.AppendLine("| Module | Instability | Abstractness | Distance |");
+            sb.AppendLine("|---|---|---|---|");
+            foreach (var m in metrics.Modules.Take(5))
+            {
+                sb.AppendLine($"| `{MdEscape(m.Key)}` | {m.Instability:F2} | {m.Abstractness:F2} | {m.Distance:F2} |");
             }
             sb.AppendLine();
         }

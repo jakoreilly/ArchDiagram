@@ -154,6 +154,33 @@ table.grid th, table.grid td { text-align: left; padding: .45rem .7rem; border-b
 table.grid th { background: var(--bg-sunken); font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-soft); }
 table.grid tr:last-child td { border-bottom: none; }
 
+/* ---- Test-file visibility toggle ---- */
+:root.hide-tests [data-test] { display: none !important; }
+
+/* ---- Architecture metrics scatter ---- */
+.metrics-scatter { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: var(--shadow); padding: .5rem; margin: .75rem 0 1.5rem; overflow: hidden; }
+.metrics-scatter svg { display: block; width: 100%; max-width: 520px; height: auto; margin: 0 auto; }
+
+/* ---- Structure treemap ---- */
+.treemap { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: var(--shadow); padding: .5rem; margin: .75rem 0 1.5rem; overflow: hidden; }
+.treemap svg { display: block; width: 100%; height: auto; }
+.treemap a rect { transition: opacity .12s; }
+.treemap a:hover rect { opacity: .82; }
+
+/* ---- Module coupling matrix ---- */
+table.matrix { border-collapse: separate; border-spacing: 0; }
+table.matrix th, table.matrix td { text-align: center; min-width: 2.4rem; font-variant-numeric: tabular-nums; }
+table.matrix td.zero { color: var(--text-soft); }
+table.matrix thead th, table.matrix tbody th { position: sticky; background: var(--bg-sunken); z-index: 1; }
+table.matrix tbody th { left: 0; }
+table.matrix thead th:first-child { left: 0; z-index: 2; }
+table.matrix-legend { max-width: 640px; margin: .5rem 0 .75rem; }
+table.matrix-legend td, table.matrix-legend th { padding: .3rem .6rem; }
+table.matrix-legend td.idx { color: var(--accent); font-weight: 700; text-align: right; width: 2.5em; }
+table.matrix-legend td:nth-child(2) { word-break: break-word; }
+
 /* ---- Type / member listings ---- */
 .type-card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); padding: .9rem 1.1rem; margin: .6rem 0; }
 .type-head { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }

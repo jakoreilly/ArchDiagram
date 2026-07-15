@@ -17,18 +17,24 @@ public static class CallGraphBuilder
 
     private const int MaxCandidates = 4; // more than this and a name-only match means nothing
 
+    private readonly record struct Decl(FileNode File, string Type, string Method, int Min, int Max);
+
     public static List<CallEdge> Build(IReadOnlyList<FileNode> files)
     {
-        // (name, arity) -> declaring (file, type, method) across the whole scanned set.
-        var declared = new Dictionary<(string Name, int Arity), List<(FileNode File, string Type, string Method)>>();
+        // name -> declaring methods across the whole scanned set, each with its legal
+        // argument range so optional/params/named-arg calls still match (B6).
+        var declared = new Dictionary<string, List<Decl>>(StringComparer.Ordinal);
         foreach (var file in files)
         {
             foreach (var type in file.Types)
             {
                 foreach (var method in type.Methods)
                 {
-                    var key = (method.Name, method.Arity);
-                    (declared.TryGetValue(key, out var list) ? list : declared[key] = []).Add((file, type.Name, method.Name));
+                    // Fall back to exact Arity when a method predates the min/max fields.
+                    var min = method.MaxArity == 0 && method.MinArity == 0 ? method.Arity : method.MinArity;
+                    var max = method.MaxArity == 0 && method.MinArity == 0 ? method.Arity : method.MaxArity;
+                    (declared.TryGetValue(method.Name, out var list) ? list : declared[method.Name] = [])
+                        .Add(new Decl(file, type.Name, method.Name, min, max));
                 }
             }
         }
@@ -42,11 +48,10 @@ public static class CallGraphBuilder
                 {
                     foreach (var inv in method.Invocations)
                     {
-                        if (!declared.TryGetValue((inv.Name, inv.Arity), out var candidates)) { continue; }
-                        // BCL-common names only count when a same-name+arity method is
-                        // declared in the scanned set — which is exactly this lookup — but
-                        // even then, suppress if it could just as well be the BCL one
-                        // (candidate declared in a different type than any we can see).
+                        if (!declared.TryGetValue(inv.Name, out var all)) { continue; }
+                        var candidates = all.Where(d => inv.Arity >= d.Min && inv.Arity <= d.Max).ToList();
+                        if (candidates.Count == 0) { continue; }
+                        // BCL-common names only count when exactly one declaration matches.
                         if (BclCommonNames.Contains(inv.Name) && candidates.Count != 1) { continue; }
                         if (candidates.Count > MaxCandidates) { continue; }
 

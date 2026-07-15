@@ -25,7 +25,7 @@ public class SiteSmokeTests : IDisposable
     [Fact]
     public void All_expected_pages_and_assets_exist()
     {
-        foreach (var page in new[] { "index.html", "guide.html", "structure.html", "dependencies.html", "types.html", "calls.html",
+        foreach (var page in new[] { "index.html", "guide.html", "structure.html", "dependencies.html", "modules.html", "metrics.html", "types.html", "calls.html",
                                      "hotspots.html", "model.json", "ARCHITECTURE.md",
                                      Path.Combine("assets", "site.css"), Path.Combine("assets", "site.js"),
                                      Path.Combine("assets", "search-index.js"),
@@ -148,6 +148,69 @@ public class SiteSmokeTests : IDisposable
         Assert.Contains("fan-in", guide);
         Assert.Contains("Ctrl", guide);
         Assert.Contains("class=\"legend\"", guide);
+    }
+
+    [Fact]
+    public void Every_page_nav_links_to_the_metrics_page()
+    {
+        foreach (var html in Directory.EnumerateFiles(_outDir, "*.html", SearchOption.AllDirectories))
+        {
+            Assert.Matches(new Regex("href=\"(\\.\\./)?metrics\\.html\""), File.ReadAllText(html));
+        }
+    }
+
+    [Fact]
+    public void Metrics_page_scatter_is_valid_offline_svg()
+    {
+        var metrics = File.ReadAllText(Path.Combine(_outDir, "metrics.html"));
+        // SampleRepo may have < 2 modules; only assert the chart when the page rendered it.
+        if (metrics.Contains("metrics-scatter"))
+        {
+            Assert.Contains("Main sequence", metrics);
+            var start = metrics.IndexOf("<svg", StringComparison.Ordinal);
+            var end = metrics.IndexOf("</svg>", start, StringComparison.Ordinal) + 6;
+            var svg = metrics[start..end];
+            System.Xml.Linq.XDocument.Parse(svg);
+            Assert.DoesNotContain("http", svg);
+        }
+    }
+
+    [Fact]
+    public void Every_page_nav_links_to_the_modules_page()
+    {
+        foreach (var html in Directory.EnumerateFiles(_outDir, "*.html", SearchOption.AllDirectories))
+        {
+            var content = File.ReadAllText(html);
+            Assert.Matches(new Regex("href=\"(\\.\\./)?modules\\.html\""), content);
+        }
+    }
+
+    [Fact]
+    public void Overview_has_start_here_below_the_architecture_diagrams()
+    {
+        var index = File.ReadAllText(Path.Combine(_outDir, "index.html"));
+        // The "Start here" section heading (not the intro lede's "Start here for the big picture").
+        Assert.Contains("Start here <span", index);
+        // Reading list follows the big picture.
+        Assert.True(index.IndexOf("<h2>Architecture</h2>", StringComparison.Ordinal)
+                  < index.IndexOf("Start here <span", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Every_page_has_the_tests_toggle()
+    {
+        foreach (var html in Directory.EnumerateFiles(_outDir, "*.html", SearchOption.AllDirectories))
+        {
+            Assert.Contains("id=\"tests-toggle\"", File.ReadAllText(html));
+        }
+    }
+
+    [Fact]
+    public void Modules_matrix_has_a_numbered_legend()
+    {
+        var modules = File.ReadAllText(Path.Combine(_outDir, "modules.html"));
+        // SampleRepo may resolve to a single module; only assert when the matrix rendered.
+        if (modules.Contains("Coupling matrix")) { Assert.Contains("matrix-legend", modules); }
     }
 
     [Fact]

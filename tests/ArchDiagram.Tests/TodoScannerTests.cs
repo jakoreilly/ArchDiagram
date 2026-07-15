@@ -35,4 +35,37 @@ public class TodoScannerTests
         var content = string.Concat(Enumerable.Repeat("// TODO: one more\n", 200));
         Assert.Equal(50, TodoScanner.Scan(content).Count);
     }
+
+    [Fact]
+    public void Ignores_marker_at_line_start_when_not_a_comment()
+    {
+        // A YAML-style key or bare word at line start is not a comment (B2).
+        Assert.Empty(TodoScanner.Scan("TODO: this is a yaml key not a comment\n", "YAML"));
+    }
+
+    [Fact]
+    public void Finds_lowercase_bug_marker()
+    {
+        // B3: case-insensitive pre-filter no longer drops lowercase xxx/bug/undone.
+        var todos = TodoScanner.Scan("// bug: leaks here\n", "C#");
+        Assert.Single(todos);
+        Assert.Equal("BUG", todos[0].Tag);
+    }
+
+    [Fact]
+    public void Respects_language_comment_token()
+    {
+        // '#' is not a C# comment token, so a '#'-led marker is ignored for C#.
+        Assert.Empty(TodoScanner.Scan("x = 1 # TODO not a c# comment\n", "C#"));
+        Assert.Single(TodoScanner.Scan("# TODO real python comment\n", "Python"));
+    }
+
+    [Fact]
+    public void Extracts_author_attribution()
+    {
+        var todos = TodoScanner.Scan("// TODO(alice): wire this up\n", "C#");
+        Assert.Single(todos);
+        Assert.Equal("alice", todos[0].Author);
+        Assert.Equal("wire this up", todos[0].Text);
+    }
 }

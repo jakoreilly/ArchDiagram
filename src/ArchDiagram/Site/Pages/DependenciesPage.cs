@@ -28,7 +28,9 @@ connections to a specific package (e.g. <code>system.data</code>).</p>
             return sb.ToString();
         }
 
-        var folders = model.Files.Select(TopFolder).Distinct(StringComparer.OrdinalIgnoreCase)
+        // Dependency diagrams are a code-architecture view — test files/folders are excluded
+        // (the viewer's 🧪 toggle governs HTML lists; these pre-rendered diagrams stay code-only).
+        var folders = model.Files.Where(f => !f.IsTest).Select(TopFolder).Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
 
         sb.Append("<div class=\"select-row\"><label for=\"dep-select\">Show:</label><select id=\"dep-select\" data-diagram-select=\"deps\">");
@@ -77,14 +79,15 @@ connections to a specific package (e.g. <code>system.data</code>).</p>
     /// <summary>Top-level folders as nodes; edges aggregate the file-level imports crossing them.</summary>
     public static Diagram BuildFolderOverview(ProjectModel model, int maxNodes)
     {
-        var folderOf = model.Files.ToDictionary(f => f.Slug, TopFolder, StringComparer.Ordinal);
-        var fileCount = model.Files.GroupBy(TopFolder, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+        var codeFiles = model.Files.Where(f => !f.IsTest).ToList();
+        var folderOf = codeFiles.ToDictionary(f => f.Slug, TopFolder, StringComparer.Ordinal);
+        var fileCount = codeFiles.GroupBy(TopFolder, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
 
         var counts = new Dictionary<(string From, string To), int>();
         foreach (var e in model.FileDependencies.Where(e => e.ToSlug.Length > 0))
         {
-            var from = folderOf.GetValueOrDefault(e.FromSlug, "(root)");
-            var to = folderOf.GetValueOrDefault(e.ToSlug, "(root)");
+            // Skip edges touching an excluded (test) file.
+            if (!folderOf.TryGetValue(e.FromSlug, out var from) || !folderOf.TryGetValue(e.ToSlug, out var to)) { continue; }
             if (from.Equals(to, StringComparison.OrdinalIgnoreCase)) { continue; }
             counts[(from, to)] = counts.GetValueOrDefault((from, to)) + 1;
         }
@@ -106,7 +109,7 @@ connections to a specific package (e.g. <code>system.data</code>).</p>
     /// <summary>Files within one top-level folder, plus their most-imported external packages.</summary>
     public static Diagram BuildFolderDiagram(ProjectModel model, string folder, int maxNodes)
     {
-        var files = model.Files.Where(f => TopFolder(f).Equals(folder, StringComparison.OrdinalIgnoreCase)).ToList();
+        var files = model.Files.Where(f => !f.IsTest && TopFolder(f).Equals(folder, StringComparison.OrdinalIgnoreCase)).ToList();
         var slugSet = new HashSet<string>(files.Select(f => f.Slug), StringComparer.Ordinal);
         var bySlug = model.Files.ToDictionary(f => f.Slug, StringComparer.Ordinal);
 
@@ -121,6 +124,7 @@ connections to a specific package (e.g. <code>system.data</code>).</p>
 
         var edges = new List<DiagramEdge>();
         var externalCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var nodeIds = new HashSet<string>(nodes.Select(n => n.Id), StringComparer.Ordinal);
         foreach (var e in model.FileDependencies.Where(e => slugSet.Contains(e.FromSlug)))
         {
             if (e.ToSlug.Length > 0)
@@ -134,7 +138,7 @@ connections to a specific package (e.g. <code>system.data</code>).</p>
                     // Cross-folder link: represent the other folder as one node.
                     var otherFolder = TopFolder(other);
                     var id = "xfold:" + otherFolder;
-                    if (nodes.All(n => n.Id != id))
+                    if (nodeIds.Add(id))
                     {
                         nodes.Add(new DiagramNode(id, otherFolder + "/", "folder", NodeShape.Rounded, $"Files in {otherFolder}/ (see that folder's diagram)"));
                     }
@@ -151,10 +155,11 @@ connections to a specific package (e.g. <code>system.data</code>).</p>
         {
             var id = "ext:" + ext;
             nodes.Add(new DiagramNode(id, ext, "external", NodeShape.Hexagon, $"External package/namespace: {ext}\nImported by {count} file(s) in {folder}/"));
+            nodeIds.Add(id);
         }
         foreach (var e in model.FileDependencies.Where(e => slugSet.Contains(e.FromSlug) && e.ExternalTarget.Length > 0))
         {
-            if (nodes.Any(n => n.Id == "ext:" + e.ExternalTarget))
+            if (nodeIds.Contains("ext:" + e.ExternalTarget))
             {
                 edges.Add(new DiagramEdge("file:" + e.FromSlug, "ext:" + e.ExternalTarget, "", Dashed: true));
             }

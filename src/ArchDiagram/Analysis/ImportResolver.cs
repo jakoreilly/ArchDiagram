@@ -6,11 +6,20 @@ namespace ArchDiagram.Analysis;
 /// Unresolved imports become external-package edges (capped later for display).</summary>
 public static class ImportResolver
 {
+    /// <summary>Max file-to-file edges a single <c>using Namespace;</c> may produce.
+    /// A namespace can be split across dozens of files; emitting an edge to every one
+    /// of them turns one import line into N edges and makes fan-in/fan-out (and every
+    /// ranking built on them) reflect namespace size rather than real coupling. We keep
+    /// the strongest few — the files declaring the most types in that namespace — so the
+    /// graph stays honest without collapsing a real dependency to nothing.</summary>
+    private const int MaxNamespaceEdgesPerImport = 3;
+
     public static List<DepEdge> Resolve(IReadOnlyList<FileNode> files)
     {
         var bySlugPath = files.ToDictionary(f => f.RelPath, f => f, StringComparer.OrdinalIgnoreCase);
 
-        // C#: namespace -> files declaring types in it (from Roslyn facts).
+        // C#: namespace -> files declaring types in it (from Roslyn facts), ordered so the
+        // files that most define the namespace come first, then by path for determinism.
         var byNamespace = new Dictionary<string, List<FileNode>>(StringComparer.Ordinal);
         foreach (var f in files)
         {
@@ -18,6 +27,13 @@ public static class ImportResolver
             {
                 (byNamespace.TryGetValue(ns, out var list) ? list : byNamespace[ns] = []).Add(f);
             }
+        }
+        foreach (var ns in byNamespace.Keys.ToList())
+        {
+            byNamespace[ns] = byNamespace[ns]
+                .OrderByDescending(f => f.Types.Count(t => string.Equals(t.Namespace, ns, StringComparison.Ordinal)))
+                .ThenBy(f => f.RelPath, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
 
         var edges = new List<DepEdge>();
@@ -57,7 +73,9 @@ public static class ImportResolver
     }
 
     private static List<FileNode> ResolveCSharp(string ns, Dictionary<string, List<FileNode>> byNamespace) =>
-        byNamespace.TryGetValue(ns, out var hits) ? hits : [];
+        byNamespace.TryGetValue(ns, out var hits)
+            ? (hits.Count <= MaxNamespaceEdgesPerImport ? hits : hits.Take(MaxNamespaceEdgesPerImport).ToList())
+            : [];
 
     private static List<FileNode> ResolveRelative(FileNode from, string import, Dictionary<string, FileNode> byPath, string[] extCandidates)
     {
