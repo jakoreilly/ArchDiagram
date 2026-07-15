@@ -1,5 +1,3 @@
-using ArchDiagram.Rendering;
-
 namespace ArchDiagram.Graph;
 
 /// <summary>Keeps every emitted diagram readable: caps node count by keeping the

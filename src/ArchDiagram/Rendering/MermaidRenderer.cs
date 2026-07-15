@@ -1,25 +1,11 @@
 using System.Text;
+using ArchDiagram.Graph;
 
 namespace ArchDiagram.Rendering;
 
-public enum NodeShape { Box, Database, Rounded, Hexagon }
-
-/// <summary>A node to draw. Id is any stable string; the renderer assigns the
-/// mermaid-safe alias. Tooltip is plain text shown on hover (escaped here).</summary>
-public sealed record DiagramNode(string Id, string Label, string Css, NodeShape Shape = NodeShape.Box, string Tooltip = "", string Href = "");
-
-public sealed record DiagramEdge(string FromId, string ToId, string Label = "", bool Dashed = false);
-
-/// <summary>Rendered mermaid text plus the alias->tooltip map site.js uses for hover
-/// cards and the alias->href map it uses to make nodes clickable. <see cref="ShownNodes"/>
-/// and <see cref="TotalNodes"/> drive the "showing N of M" trim banner; when equal the
-/// diagram was not trimmed.</summary>
-public sealed record Diagram(string Mermaid, Dictionary<string, string> Tooltips, Dictionary<string, string> Hrefs)
-{
-    public int ShownNodes { get; init; }
-    public int TotalNodes { get; init; }
-    public bool Trimmed => TotalNodes > ShownNodes;
-}
+// DiagramNode/DiagramEdge/Diagram/NodeShape are the diagram data model and live in
+// ArchDiagram.Graph (Graph/DiagramModel.cs) so the Graph layer (GraphReducer) can use
+// them without depending on Rendering — keeping the module dependency one-way.
 
 /// <summary>Pure model -> mermaid flowchart text. Deterministic aliases (n001... in
 /// input order), full label escaping (mermaid entity codes), dashed edges for
