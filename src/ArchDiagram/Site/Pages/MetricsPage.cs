@@ -107,8 +107,10 @@ public static class MetricsPage
         {
             var style = first ? " style=\"border-top:none\"" : "";
             first = false;
-            var chain = string.Join(" → ", group.Select(k => Html.Encode(Strip(k, prefix))));
-            sb.Append($"<li{style}><span class=\"badge warn\">cycle</span> {chain} → …</li>");
+            var names = group.Select(k => Html.Encode(Strip(k, prefix))).ToList();
+            var chain = string.Join(" → ", names.Append(names[0])); // show the cycle
+            sb.Append($"<li{style}><span class=\"badge warn\">cycle</span> {chain}</li>");
+
         }
         sb.Append("</ul></div>");
     }
