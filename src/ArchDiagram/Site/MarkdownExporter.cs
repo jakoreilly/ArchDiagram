@@ -145,8 +145,8 @@ public static class MarkdownExporter
         };
         sb.AppendLine($"## Architecture scorecard — {overall}");
         sb.AppendLine();
-        sb.AppendLine("| Signal | Value | Grade | Meaning |");
-        sb.AppendLine("|---|---|---|---|");
+        sb.AppendLine("| Signal | Value | Grade | Meaning | What to do |");
+        sb.AppendLine("|---|---|---|---|---|");
         foreach (var r in card.Rows)
         {
             var grade = r.Status switch
@@ -156,7 +156,8 @@ public static class MarkdownExporter
                 Analysis.ScorecardBuilder.Status.Fail => "fail",
                 _ => "n/a",
             };
-            sb.AppendLine($"| {MdEscape(r.Metric)} | {MdEscape(r.Value)} | {grade} | {MdEscape(r.Note)} |");
+            var action = r.Action.Length == 0 ? "—" : r.Action;
+            sb.AppendLine($"| {MdEscape(r.Metric)} | {MdEscape(r.Value)} | {grade} | {MdEscape(r.Note)} | {MdEscape(action)} |");
         }
         sb.AppendLine();
     }

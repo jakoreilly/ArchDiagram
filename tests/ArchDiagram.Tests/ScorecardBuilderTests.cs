@@ -49,6 +49,21 @@ public class ScorecardBuilderTests
     }
 
     [Fact]
+    public void Worst_distance_is_na_when_no_abstractions_exist()
+    {
+        // Two concrete modules, no interfaces → abstractness 0 everywhere. Distance is an
+        // artifact and must be reported n/a, not fail — so it can't force a false "AT RISK".
+        var m = new ProjectModel { RootName = "R", SourcePath = "C:/r" };
+        m.Files.Add(new FileNode { RelPath = "src/A.cs", Slug = "a", Language = "C#", Loc = 50,
+            Types = [new TypeInfo { Name = "A", Kind = "class", Namespace = "NA" }] });
+        m.Files.Add(new FileNode { RelPath = "src/B.cs", Slug = "b", Language = "C#", Loc = 50,
+            Types = [new TypeInfo { Name = "B", Kind = "class", Namespace = "NB" }] });
+        m.FileDependencies.Add(new DepEdge { FromSlug = "a", ToSlug = "b" });
+        var card = ScorecardBuilder.Build(m);
+        Assert.Equal(ScorecardBuilder.Status.NA, card.Rows.Single(r => r.Metric == "Worst distance (D)").Status);
+    }
+
+    [Fact]
     public void Layering_is_na_without_a_contract()
     {
         var m = new ProjectModel { RootName = "R", SourcePath = "C:/r" };

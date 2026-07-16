@@ -18,6 +18,7 @@ public static class ScorecardPage
         var (label, cls) = Grade(card.Overall);
 
         sb.Append("<p class=\"lede\">A quick, honest health check: each signal is graded against a fixed threshold. "
+                + "The <strong>overall grade is the worst single signal</strong> — so read the failing rows below, not just the headline. "
                 + "Grades are heuristic and syntax-only — a conversation starter for a review, not a certification.</p>");
 
         sb.Append("<div class=\"tiles\"><div class=\"tile\" style=\"border-color:var(--" + cls + ")\">"
@@ -26,12 +27,28 @@ public static class ScorecardPage
         sb.Append($"<div class=\"tile\"><div class=\"num\">{card.Rows.Count(r => r.Status is ScorecardBuilder.Status.Watch or ScorecardBuilder.Status.Fail)}</div><div class=\"lbl\">Need attention</div></div>");
         sb.Append("</div>");
 
-        sb.Append("<table class=\"grid\"><thead><tr><th>Signal</th><th>Value</th><th>Grade</th><th>What it means</th></tr></thead><tbody>");
+        // Say plainly what set the grade so it can be acted on, not just seen.
+        var drivers = card.Rows.Where(r => r.Status == card.Overall && card.Overall != ScorecardBuilder.Status.Ok)
+            .Select(r => r.Metric).ToList();
+        if (drivers.Count > 0)
+        {
+            sb.Append($"<div class=\"panel\" style=\"border-color:var(--{cls})\"><strong>Why {label}:</strong> "
+                    + $"driven by {string.Join(", ", drivers.Select(d => "<strong>" + Html.Encode(d) + "</strong>"))}. "
+                    + "See the “What to do” column for the specific action, and the linked page for detail. "
+                    + "Signals marked <em>n/a</em> could not be measured and did not affect the grade.</div>");
+        }
+
+        sb.Append("<table class=\"grid\"><thead><tr><th>Signal</th><th>Value</th><th>Grade</th><th>What it means</th><th>What to do</th></tr></thead><tbody>");
         foreach (var r in card.Rows)
         {
             var (rl, rc) = GradeRow(r.Status);
+            var action = r.Action.Length == 0
+                ? "<span class=\"note\">—</span>"
+                : (r.Link.Length > 0
+                    ? $"{Html.Encode(r.Action)} <a href=\"{Html.Encode(r.Link)}\">→</a>"
+                    : Html.Encode(r.Action));
             sb.Append($"<tr><td>{Html.Encode(r.Metric)}</td><td>{Html.Encode(r.Value)}</td>"
-                    + $"<td><span class=\"badge {rc}\">{rl}</span></td><td>{Html.Encode(r.Note)}</td></tr>");
+                    + $"<td><span class=\"badge {rc}\">{rl}</span></td><td>{Html.Encode(r.Note)}</td><td>{action}</td></tr>");
         }
         sb.Append("</tbody></table>");
 

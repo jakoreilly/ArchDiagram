@@ -45,6 +45,20 @@ public class LayeringAnalyzerTests
     }
 
     [Fact]
+    public void Layer_prefix_matches_on_a_namespace_boundary_only()
+    {
+        // "App.Web" must NOT claim module "App.WebHost".
+        var m = new ProjectModel { RootName = "R", SourcePath = "C:/r" };
+        m.Files.Add(F("h", "App.WebHost"));
+        m.Files.Add(F("d", "App.Domain"));
+        m.FileDependencies.Add(new DepEdge { FromSlug = "h", ToSlug = "d" });
+        m.Layers.Add(new LayerDef("Presentation", ["App.Web"]));
+        m.Layers.Add(new LayerDef("Domain", ["App.Domain"]));
+        var r = LayeringAnalyzer.Analyze(m);
+        Assert.Contains("App.WebHost", r.Unassigned); // not matched by "App.Web"
+    }
+
+    [Fact]
     public void No_contract_infers_levels()
     {
         var m = new ProjectModel { RootName = "R", SourcePath = "C:/r" };

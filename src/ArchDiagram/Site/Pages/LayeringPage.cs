@@ -15,7 +15,6 @@ public static class LayeringPage
         sb.Append("<h1>Layering</h1>");
 
         var r = LayeringAnalyzer.Analyze(model);
-        var prefix = ""; // module keys are shown verbatim; namespaces are already the reviewer's vocabulary.
 
         if (r.Layers.Count == 0)
         {

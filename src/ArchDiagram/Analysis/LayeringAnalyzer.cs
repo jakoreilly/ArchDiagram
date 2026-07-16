@@ -39,10 +39,10 @@ public static class LayeringAnalyzer
             {
                 foreach (var ns in order[i].Namespaces)
                 {
-                    if (moduleKey.StartsWith(ns, StringComparison.Ordinal) && ns.Length > bestLen)
-                    {
-                        best = i; bestLen = ns.Length;
-                    }
+                    // Match on a namespace boundary so "App.Web" does not also claim
+                    // "App.WebHost" — exact match or a dotted-segment prefix only.
+                    var matches = moduleKey == ns || moduleKey.StartsWith(ns + ".", StringComparison.Ordinal);
+                    if (matches && ns.Length > bestLen) { best = i; bestLen = ns.Length; }
                 }
             }
             return best;
