@@ -29,6 +29,12 @@ public static class ModuleGrouper
         var useNamespace = withTypes > 0 && withNamespace >= 0.6 * withTypes;
         var mode = useNamespace ? "namespace" : "folder";
 
+        // In namespace mode, restrict to files that actually declare types. Otherwise docs, config,
+        // CI, scripts and other type-less files all collapse into one ambiguous "(no namespace)"
+        // pseudo-module that skews coupling/Instability/Distance. Folder mode keeps every file
+        // (a folder is a meaningful grouping for any file type).
+        if (useNamespace) { codeFiles = codeFiles.Where(f => f.Types.Count > 0).ToList(); }
+
         var keyOf = new Dictionary<string, string>(StringComparer.Ordinal);
         var files = new Dictionary<string, (int Count, int Loc, int Abstract, int Total)>(StringComparer.Ordinal);
         foreach (var f in codeFiles)
@@ -60,8 +66,11 @@ public static class ModuleGrouper
 
     private static string NamespaceKey(FileNode f)
     {
+        // Global-namespace code (e.g. a top-level-statements Program.cs) has types but no
+        // namespace. Rather than pool it into an ambiguous "(no namespace)" module, give it a
+        // folder-derived key so it joins a real area of the tree.
         var ns = f.Types.Select(t => t.Namespace).FirstOrDefault(n => n.Length > 0);
-        return ns ?? "(no namespace)";
+        return ns ?? FolderKey(f);
     }
 
     private static string FolderKey(FileNode f)

@@ -15,6 +15,24 @@ public class ModuleGrouperTests
     };
 
     [Fact]
+    public void Namespace_mode_excludes_typeless_noncode_files()
+    {
+        var code1 = File("src/A.cs", "App.Core");
+        var code2 = File("src/B.cs", "App.Data");
+        var doc = File("README.md");      // no types
+        var config = File("appsettings.json"); // no types
+        var model = new ProjectModel
+        {
+            RootName = "R", SourcePath = "C:/r",
+            Files = { code1, code2, doc, config },
+        };
+        var g = ModuleGrouper.Build(model);
+        Assert.Equal("namespace", g.Mode);
+        Assert.DoesNotContain(g.Modules, m => m.Key == "(no namespace)");
+        Assert.Equal(new[] { "App.Core", "App.Data" }, g.Modules.Select(m => m.Key).OrderBy(k => k).ToArray());
+    }
+
+    [Fact]
     public void Folder_mode_aggregates_cross_module_edges_and_skips_self()
     {
         var a1 = File("A/One.cs");

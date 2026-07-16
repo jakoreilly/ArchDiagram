@@ -12,20 +12,20 @@ public static class LayeringPage
     public static string Body(ProjectModel model)
     {
         var sb = new StringBuilder();
-        sb.Append("<h1>Layering</h1>");
+        sb.Append("<h1>Dependency Direction</h1>");
 
         var r = LayeringAnalyzer.Analyze(model);
 
         if (r.Layers.Count == 0)
         {
             sb.Append("<div class=\"panel empty-state\"><div class=\"big\">≡</div>"
-                    + "<p>Not enough modules to derive layers. See the <a href=\"modules.html\">Modules</a> page.</p></div>");
+                    + "<p>Not enough modules to analyse dependency direction. See the <a href=\"modules.html\">Modules</a> page.</p></div>");
             return sb.ToString();
         }
 
         if (r.Declared)
         {
-            sb.Append("<p class=\"lede\">Modules assigned to the <strong>declared layers</strong> (top may depend on lower, "
+            sb.Append("<p class=\"lede\">Modules assigned to your <strong>declared layers</strong> (top may depend on lower, "
                     + "never the reverse). Any dependency pointing <em>upward</em> — a lower layer reaching into a higher one — "
                     + "breaks the contract and is listed as a violation.</p>");
             sb.Append("<div class=\"tiles\">");
@@ -34,20 +34,24 @@ public static class LayeringPage
             if (r.Unassigned.Count > 0) { Tile(sb, r.Unassigned.Count.ToString("N0"), "Unassigned modules", true); }
             sb.Append("</div>");
 
-            AppendViolations(sb, r);
+            AppendViolations(sb, r, declared: true);
         }
         else
         {
-            sb.Append("<p class=\"lede\">No layers contract was declared, so these layers are <strong>inferred</strong> from the "
-                    + "dependency graph: each module sits one level above everything it depends on. The bottom level is "
-                    + "foundational (depended on by many, depends on little); the top orchestrates. Declare a contract to have "
-                    + "violations checked — see below.</p>");
+            sb.Append("<p class=\"lede\">No layer contract is declared, so modules are placed into <strong>stability tiers</strong> "
+                    + "by their Instability (how much they depend outward vs. are depended on) — orchestration at the top, "
+                    + "foundational code at the bottom. Healthy dependencies point <em>downward</em>, toward more stable code. "
+                    + "Edges that point the other way (a stable module depending on a less-stable one) break the "
+                    + "<strong>Stable Dependencies Principle</strong> and are flagged as inversion candidates. "
+                    + "Declare a contract (below) for a stricter, named-layer check.</p>");
             sb.Append("<div class=\"tiles\">");
-            Tile(sb, r.Layers.Count.ToString("N0"), "Inferred levels");
+            Tile(sb, r.Layers.Count.ToString("N0"), "Stability tiers");
+            Tile(sb, r.Violations.Count.ToString("N0"), "Against-the-grain edges", r.Violations.Count > 0);
             sb.Append("</div>");
+            AppendViolations(sb, r, declared: false);
         }
 
-        // Layer stack, top to bottom.
+        // Tier / layer stack, top to bottom.
         foreach (var layer in r.Layers)
         {
             sb.Append($"<h3>{Html.Encode(layer.Name)} <span class=\"badge\">{layer.Modules.Count} module(s)</span></h3>");
@@ -69,22 +73,31 @@ public static class LayeringPage
         return sb.ToString();
     }
 
-    private static void AppendViolations(StringBuilder sb, LayeringAnalyzer.Result r)
+    private static void AppendViolations(StringBuilder sb, LayeringAnalyzer.Result r, bool declared)
     {
-        sb.Append($"<h2>Contract violations <span class=\"badge {(r.Violations.Count > 0 ? "warn" : "ok")}\">{r.Violations.Count}</span></h2>");
+        var title = declared ? "Contract violations" : "Against-the-grain dependencies";
+        sb.Append($"<h2>{title} <span class=\"badge {(r.Violations.Count > 0 ? "warn" : "ok")}\">{r.Violations.Count}</span></h2>");
         if (r.Violations.Count == 0)
         {
             sb.Append("<div class=\"panel empty-state\"><div class=\"big\">✓</div>"
-                    + "<p>Every cross-module dependency flows downward through the declared layers. The contract holds.</p></div>");
+                    + (declared
+                        ? "<p>Every cross-module dependency flows downward through the declared layers. The contract holds.</p>"
+                        : "<p>Every cross-module dependency points toward more stable code. The Stable Dependencies Principle holds.</p>")
+                    + "</div>");
             return;
         }
-        sb.Append("<p class=\"lede\">Each row is a dependency that points the wrong way — a module in a lower layer depends on a "
-                + "module in a higher layer. Invert the dependency (e.g. via an interface owned by the lower layer) to restore the contract.</p>");
-        sb.Append("<table class=\"grid\"><thead><tr><th>From module</th><th>From layer</th><th></th><th>To module</th><th>To layer</th></tr></thead><tbody>");
+        sb.Append(declared
+            ? "<p class=\"lede\">Each row is a dependency that points the wrong way — a module in a lower layer depends on a "
+              + "module in a higher layer. Invert the dependency (e.g. via an interface owned by the lower layer) to restore the contract.</p>"
+            : "<p class=\"lede\">Each row is a dependency from a <em>more stable</em> module to a <em>less stable</em> one — the "
+              + "Stable Dependencies Principle in reverse. The stable module is now coupled to code more likely to change. Invert it "
+              + "by having both depend on an abstraction owned by the stable side.</p>");
+        sb.Append("<table class=\"grid\"><thead><tr><th>From module</th><th>From tier</th><th></th><th>To module</th><th>To tier</th></tr></thead><tbody>");
+        var arrow = declared ? "↑ upward" : "↯ against grain";
         foreach (var v in r.Violations)
         {
             sb.Append($"<tr><td>{Html.Encode(v.FromModule)}</td><td><span class=\"badge\">{Html.Encode(v.FromLayer)}</span></td>"
-                    + $"<td><span class=\"badge warn\">↑ upward</span></td>"
+                    + $"<td><span class=\"badge warn\">{arrow}</span></td>"
                     + $"<td>{Html.Encode(v.ToModule)}</td><td><span class=\"badge\">{Html.Encode(v.ToLayer)}</span></td></tr>");
         }
         sb.Append("</tbody></table>");

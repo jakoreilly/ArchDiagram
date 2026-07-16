@@ -76,6 +76,8 @@ TODO/FIXME left in comments. High fan-in files are risky to change; high fan-out
         }
         sb.Append("</tbody></table>");
 
+        AppendMaintainability(sb, model);
+
         if (showComplexity) { AppendMostComplex(sb, model); }
 
         // External packages.
@@ -130,6 +132,60 @@ TODO/FIXME left in comments. High fan-in files are risky to change; high fan-out
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>Per-file maintainability proxy: a distribution across good/moderate/poor and the
+    /// riskiest files with the drivers (size, complexity, coupling) that pull each score down.</summary>
+    private static void AppendMaintainability(StringBuilder sb, ProjectModel model)
+    {
+        var scores = Analysis.MaintainabilityScorer.Rank(model);
+        sb.Append("<h2>Maintainability " + Glossary.Info("maintainability") + "</h2>");
+        if (scores.Count == 0)
+        {
+            sb.Append("<div class=\"panel empty-state\"><div class=\"big\">📊</div>"
+                    + "<p>No first-party files with code to score.</p></div>");
+            return;
+        }
+        var good = scores.Count(s => s.Band == Analysis.MaintainabilityScorer.Band.Good);
+        var mod = scores.Count(s => s.Band == Analysis.MaintainabilityScorer.Band.Moderate);
+        var poor = scores.Count(s => s.Band == Analysis.MaintainabilityScorer.Band.Poor);
+        var total = scores.Count;
+        sb.Append("<p class=\"lede\">A heuristic 0–100 score per file blending size, peak method complexity and coupling "
+                + "(lower = riskier to change). A distribution, then the files most in need of attention.</p>");
+        // Distribution bar (reuses the language-bar styling).
+        sb.Append("<div class=\"lang-bar\">");
+        void Seg(int n, string colour, string label)
+        {
+            if (n == 0) { return; }
+            var pct = 100.0 * n / total;
+            sb.Append($"<span style=\"width:{pct:F1}%;background:{colour}\" title=\"{Html.Encode(label)}: {n} file(s)\"></span>");
+        }
+        Seg(good, "var(--ok)", "Good (70–100)");
+        Seg(mod, "var(--warn)", "Moderate (40–69)");
+        Seg(poor, "var(--danger)", "Poor (0–39)");
+        sb.Append("</div><div class=\"lang-legend\">"
+                + $"<span><span class=\"lang-dot\" style=\"background:var(--ok)\"></span>Good {good}</span>"
+                + $"<span><span class=\"lang-dot\" style=\"background:var(--warn)\"></span>Moderate {mod}</span>"
+                + $"<span><span class=\"lang-dot\" style=\"background:var(--danger)\"></span>Poor {poor}</span></div>");
+
+        var worst = scores.Where(s => s.Band != Analysis.MaintainabilityScorer.Band.Good).Take(20).ToList();
+        if (worst.Count > 0)
+        {
+            sb.Append("<table class=\"grid\"><thead><tr><th>File</th><th>Score</th><th>LOC</th>"
+                    + "<th>Peak cognitive</th><th>Coupling</th></tr></thead><tbody>");
+            foreach (var s in worst)
+            {
+                var cls = s.Band == Analysis.MaintainabilityScorer.Band.Poor ? "warn" : "";
+                sb.Append($"<tr{(s.File.IsTest ? " data-test=\"1\"" : "")}><td><a href=\"files/{s.File.Slug}.html\">{Html.Encode(s.File.RelPath)}</a></td>"
+                        + $"<td><span class=\"badge {cls}\">{s.Score}</span></td><td>{s.Loc:N0}</td>"
+                        + $"<td>{s.MaxCognitive:N0}</td><td>{s.Coupling:N0}</td></tr>");
+            }
+            sb.Append("</tbody></table>");
+        }
+        else
+        {
+            sb.Append("<div class=\"panel empty-state\"><div class=\"big\">✓</div><p>Every file scores in the healthy range.</p></div>");
+        }
     }
 
     /// <summary>Ranks C# methods by cognitive then cyclomatic complexity and lists

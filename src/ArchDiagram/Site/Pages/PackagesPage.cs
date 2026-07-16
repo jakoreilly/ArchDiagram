@@ -13,7 +13,11 @@ public static class PackagesPage
     public static string Body(ProjectModel model)
     {
         var sb = new StringBuilder();
-        sb.Append("<h1>External Dependencies</h1>");
+        sb.Append("<h1>Dependencies &amp; Stack</h1>");
+
+        AppendStack(sb, model);
+
+        sb.Append("<h2>Packages</h2>");
         sb.Append("<p class=\"lede\">Every external NuGet package referenced by the projects in this codebase, "
                 + "which projects use it, and the version(s) declared. <strong>Version drift</strong> — the same "
                 + "package pulled at different versions across projects — is called out first: it is a common source "
@@ -74,7 +78,7 @@ public static class PackagesPage
         }
 
         // Full inventory.
-        sb.Append("<h2>All packages</h2>");
+        sb.Append("<h2>Full package inventory</h2>");
         sb.Append("<table class=\"grid\"><thead><tr><th>Package</th><th>Version(s)</th><th>Used by</th><th>Projects</th></tr></thead><tbody>");
         foreach (var g in byPackage)
         {
@@ -91,6 +95,58 @@ public static class PackagesPage
                 + "\"(unspecified)\" means no inline version — common under Central Package Management, where the version "
                 + "lives in <code>Directory.Packages.props</code> (not read by this syntax-only scan).</p>");
         return sb.ToString();
+    }
+
+    /// <summary>Detected frameworks grouped by category, and the outward integration points
+    /// (databases + integration-category tech) — the stack at a glance.</summary>
+    private static void AppendStack(StringBuilder sb, ProjectModel model)
+    {
+        var stack = Analysis.TechStack.Detect(model);
+        sb.Append("<h2>Detected stack</h2>");
+        if (stack.Count == 0)
+        {
+            sb.Append("<div class=\"panel empty-state\"><div class=\"big\">🧩</div>"
+                    + "<p>No recognised frameworks were detected from package references or imports.</p></div>");
+        }
+        else
+        {
+            sb.Append("<p class=\"lede\">Frameworks and libraries recognised from package references and imports, grouped by role. "
+                    + "Unknown packages are listed in full below, not guessed at here.</p>");
+            sb.Append("<div class=\"panel\">");
+            foreach (var g in stack.GroupBy(t => t.Category).OrderBy(g => g.Key, StringComparer.Ordinal))
+            {
+                sb.Append($"<div style=\"margin:.35rem 0\"><span class=\"lbl\" style=\"display:inline-block;min-width:11rem\">{Html.Encode(g.Key)}</span> "
+                        + string.Join(" ", g.OrderBy(t => t.Name, StringComparer.Ordinal)
+                            .Select(t => $"<span class=\"badge accent\" title=\"{Html.Encode(string.Join(", ", t.UsedBy))}\">{Html.Encode(t.Name)}</span>"))
+                        + "</div>");
+            }
+            sb.Append("</div>");
+        }
+
+        // Integration points = databases + integration-category tech (the system's outward edges).
+        var integ = stack.Where(t => Analysis.TechStack.IntegrationCategories.Contains(t.Category)).ToList();
+        sb.Append("<h2>Integration points <span class=\"badge\">" + (model.Databases.Count + integ.Count) + "</span></h2>");
+        if (model.Databases.Count == 0 && integ.Count == 0)
+        {
+            sb.Append("<p class=\"note\">No databases or integration frameworks (messaging, cloud, HTTP, cache) were detected. "
+                    + "This looks self-contained, or its integrations aren't visible to a syntax-only scan.</p>");
+        }
+        else
+        {
+            sb.Append("<div class=\"panel\">");
+            foreach (var db in model.Databases)
+            {
+                sb.Append($"<div style=\"margin:.3rem 0\"><span class=\"badge\">database</span> <strong>{Html.Encode(db.Label)}</strong> "
+                        + $"<span class=\"filter-count\">{Html.Encode(db.Server)}{(db.Catalog.Length > 0 ? " / " + Html.Encode(db.Catalog) : "")}</span> "
+                        + "<a href=\"config.html\" style=\"font-size:.8rem\">Config &amp; Secrets →</a></div>");
+            }
+            foreach (var t in integ)
+            {
+                sb.Append($"<div style=\"margin:.3rem 0\"><span class=\"badge\">{Html.Encode(t.Category.ToLowerInvariant())}</span> {Html.Encode(t.Name)} "
+                        + $"<span class=\"filter-count\">{Html.Encode(string.Join(", ", t.UsedBy))}</span></div>");
+            }
+            sb.Append("</div>");
+        }
     }
 
     private static void Tile(StringBuilder sb, string num, string label, bool warn = false)

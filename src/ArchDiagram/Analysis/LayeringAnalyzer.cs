@@ -24,7 +24,7 @@ public static class LayeringAnalyzer
         var moduleKeys = g.Modules.Select(m => m.Key).OrderBy(k => k, StringComparer.Ordinal).ToList();
         return model.Layers.Count > 0
             ? Declared(model, g, moduleKeys)
-            : Inferred(g, moduleKeys);
+            : Inferred(model, g, moduleKeys);
     }
 
     private static Result Declared(ProjectModel model, ModuleGrouper.ModuleGraph g, List<string> moduleKeys)
@@ -68,38 +68,48 @@ public static class LayeringAnalyzer
         return new Result(true, layers, violations, unassigned);
     }
 
-    private static Result Inferred(ModuleGrouper.ModuleGraph g, List<string> moduleKeys)
+    // Stability tiers (top → bottom). Instability I = Ce/(Ca+Ce): high = unstable/orchestration,
+    // low = stable/foundational. Fixed bands give a small, meaningful, count-stable set of tiers
+    // (never the "45 levels" that longest-path depth produced on large graphs).
+    private static readonly (string Name, double Min)[] Tiers =
+    [
+        ("Orchestration (unstable)", 0.80),
+        ("Application", 0.50),
+        ("Core", 0.20),
+        ("Foundational (stable)", 0.00),
+    ];
+
+    private static Result Inferred(ProjectModel model, ModuleGrouper.ModuleGraph g, List<string> moduleKeys)
     {
-        // Longest-path level: level(A) = 1 + max(level of modules A depends on). Relax up to
-        // n times; cycles saturate at the cap (still grouped, just not perfectly layered).
-        var deps = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        foreach (var (from, to) in g.Edges.Keys)
+        // Per-module instability from the same computation the Metrics page uses.
+        var inst = ArchitectureMetrics.Compute(model).Modules
+            .ToDictionary(m => m.Key, m => m.Instability, StringComparer.Ordinal);
+
+        string TierOf(string key)
         {
-            if (from == to) { continue; }
-            (deps.TryGetValue(from, out var l) ? l : deps[from] = []).Add(to);
-        }
-        var level = moduleKeys.ToDictionary(k => k, _ => 0, StringComparer.Ordinal);
-        var cap = moduleKeys.Count;
-        for (var iter = 0; iter < cap; iter++)
-        {
-            var changed = false;
-            foreach (var k in moduleKeys)
-            {
-                if (!deps.TryGetValue(k, out var ds)) { continue; }
-                var want = ds.Where(level.ContainsKey).Select(d => level[d] + 1).DefaultIfEmpty(0).Max();
-                if (want > level[k] && want <= cap) { level[k] = want; changed = true; }
-            }
-            if (!changed) { break; }
+            var i = inst.GetValueOrDefault(key, 0.0);
+            foreach (var (name, min) in Tiers) { if (i >= min) { return name; } }
+            return Tiers[^1].Name;
         }
 
-        var maxLevel = level.Count > 0 ? level.Values.Max() : 0;
-        var layers = new List<Layer>();
-        // Present top (highest level = orchestration) to bottom (level 0 = foundational).
-        for (var lv = maxLevel; lv >= 0; lv--)
+        var layers = Tiers
+            .Select(t => new Layer(t.Name, moduleKeys.Where(k => TierOf(k) == t.Name)
+                .OrderBy(k => k, StringComparer.Ordinal).ToList()))
+            .Where(l => l.Modules.Count > 0)
+            .ToList();
+
+        // Stable Dependencies Principle: dependencies should point toward MORE stable modules
+        // (higher instability depends on lower). An edge whose source is more stable than its
+        // target (I(from) < I(to) by a margin) points "against the grain" — an inversion candidate.
+        const double margin = 0.15;
+        var violations = new List<Violation>();
+        foreach (var (from, to) in g.Edges.Keys.OrderBy(k => k.From, StringComparer.Ordinal).ThenBy(k => k.To, StringComparer.Ordinal))
         {
-            var members = moduleKeys.Where(k => level[k] == lv).ToList();
-            if (members.Count > 0) { layers.Add(new Layer($"Level {lv}", members)); }
+            if (from == to) { continue; }
+            var fi = inst.GetValueOrDefault(from, 0.0);
+            var ti = inst.GetValueOrDefault(to, 0.0);
+            if (fi < ti - margin) { violations.Add(new Violation(from, TierOf(from), to, TierOf(to))); }
         }
-        return new Result(false, layers, [], []);
+        return new Result(false, layers, violations, []);
     }
 }

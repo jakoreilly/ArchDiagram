@@ -42,6 +42,8 @@ public static class Glossary
             "Test lines ÷ (first-party + test lines). A proxy, not execution coverage: a high ratio doesn't guarantee good tests, and a low one is a prompt to add them. Measure real coverage with a coverage tool."),
         ["version-drift"] = new("The same package pulled at different versions in different projects.",
             "Two or more projects reference one NuGet package at differing versions. This can load duplicate assemblies and cause subtle conflicts; align on one version or use Central Package Management."),
+        ["maintainability"] = new("A rough 0–100 score for how hard a file is to change safely — lower is riskier.",
+            "Heuristic proxy blending size (LOC), peak method cognitive complexity, and coupling (fan-in+fan-out). It is not the Microsoft Maintainability Index (which needs Halstead volume, not computed here) — treat it as a triage signal, not a precise measure."),
         ["critical-path"] = new("The chain of files you pass through to reach an important file.",
             "The shortest sequence of imports from an entry point (a file nothing else imports) to a key file. Reading it left-to-right shows how the code reaches that file."),
         ["layering"] = new("Whether dependencies flow one way, top layer down to foundation.",

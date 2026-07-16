@@ -22,6 +22,10 @@ public static class SiteGenerator
             PageTemplate.Crumbs((null, "Overview")),
             IndexPage.Body(model, maxNodes, generatedOn));
 
+        WritePage(outDir, "brief.html", "System Brief", model, "brief.html", "",
+            PageTemplate.Crumbs(("index.html", "Overview"), (null, "System Brief")),
+            BriefPage.Body(model, generatedOn));
+
         WritePage(outDir, "guide.html", "Guide", model, "guide.html", "",
             PageTemplate.Crumbs(("index.html", "Overview"), (null, "Guide")),
             GuidePage.Body(model));
@@ -38,8 +42,8 @@ public static class SiteGenerator
             PageTemplate.Crumbs(("index.html", "Overview"), (null, "Modules")),
             ModulesPage.Body(model, maxNodes));
 
-        WritePage(outDir, "layers.html", "Layering", model, "layers.html", "",
-            PageTemplate.Crumbs(("index.html", "Overview"), (null, "Layering")),
+        WritePage(outDir, "layers.html", "Dependency Direction", model, "layers.html", "",
+            PageTemplate.Crumbs(("index.html", "Overview"), (null, "Dependency Direction")),
             LayeringPage.Body(model));
 
         WritePage(outDir, "metrics.html", "Architecture Metrics", model, "metrics.html", "",
@@ -49,6 +53,10 @@ public static class SiteGenerator
         WritePage(outDir, "scorecard.html", "Architecture Scorecard", model, "scorecard.html", "",
             PageTemplate.Crumbs(("index.html", "Overview"), (null, "Scorecard")),
             ScorecardPage.Body(model));
+
+        WritePage(outDir, "refactor.html", "Refactoring Backlog", model, "refactor.html", "",
+            PageTemplate.Crumbs(("index.html", "Overview"), (null, "Refactoring")),
+            RefactorPage.Body(model));
 
         WritePage(outDir, "types.html", "Types & Members", model, "types.html", "",
             PageTemplate.Crumbs(("index.html", "Overview"), (null, "Types & Members")),

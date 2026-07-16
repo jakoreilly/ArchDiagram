@@ -59,6 +59,27 @@ public class LayeringAnalyzerTests
     }
 
     [Fact]
+    public void Inferred_flags_a_stable_dependencies_principle_inversion()
+    {
+        // S is relatively stable (Ca=2, Ce=1 → I≈0.33); U is unstable (Ca=1, Ce=2 → I≈0.67).
+        // The edge S → U therefore points from more-stable to less-stable = an SDP inversion.
+        var m = new ProjectModel { RootName = "R", SourcePath = "C:/r" };
+        foreach (var (slug, ns) in new[] { ("a", "A"), ("b", "B"), ("s", "S"), ("u", "U"), ("v", "V"), ("w", "W") })
+        {
+            m.Files.Add(F(slug, ns));
+        }
+        void Dep(string f, string t) => m.FileDependencies.Add(new DepEdge { FromSlug = f, ToSlug = t });
+        Dep("a", "s"); Dep("b", "s");   // S.Ca = 2
+        Dep("s", "u");                    // S.Ce = 1  → I(S) ≈ 0.33 ;  U.Ca = 1
+        Dep("u", "v"); Dep("u", "w");   // U.Ce = 2  → I(U) ≈ 0.67
+
+        var r = LayeringAnalyzer.Analyze(m);
+        Assert.False(r.Declared);
+        Assert.Contains(r.Violations, v => v.FromModule == "S" && v.ToModule == "U");
+        Assert.DoesNotContain(r.Violations, v => v.FromModule == "A"); // A → S is healthy (unstable→stable)
+    }
+
+    [Fact]
     public void No_contract_infers_levels()
     {
         var m = new ProjectModel { RootName = "R", SourcePath = "C:/r" };

@@ -37,12 +37,12 @@ public static class PageTemplate
     /// flat <see cref="Nav"/> for callers/tests that just need the hrefs.</summary>
     public static readonly (string Section, (string Href, string Title, string Icon)[] Items)[] NavSections =
     [
-        ("Start", [("index.html", "Overview", "◈"), ("guide.html", "Guide", "❓")]),
+        ("Start", [("index.html", "Overview", "◈"), ("brief.html", "System Brief", "📄"), ("guide.html", "Guide", "❓")]),
         ("Structure", [("structure.html", "Structure", "🗀"), ("dependencies.html", "Dependencies", "⇄"),
-                       ("modules.html", "Modules", "⬡"), ("layers.html", "Layering", "≡"), ("graph.html", "Graph (3D)", "🕸")]),
-        ("Health", [("scorecard.html", "Scorecard", "✔"), ("metrics.html", "Metrics", "📐"), ("hotspots.html", "Hotspots", "◉")]),
+                       ("modules.html", "Modules", "⬡"), ("layers.html", "Dependency Direction", "≡"), ("graph.html", "Graph (3D)", "🕸")]),
+        ("Health", [("scorecard.html", "Scorecard", "✔"), ("refactor.html", "Refactoring", "🔧"), ("metrics.html", "Metrics", "📐"), ("hotspots.html", "Hotspots", "◉")]),
         ("Code", [("types.html", "Types & Members", "❖"), ("api.html", "API Surface", "⧉"), ("calls.html", "Call Graph", "☎")]),
-        ("Supply chain", [("packages.html", "Packages", "📦"), ("config.html", "Config & Secrets", "🔑")]),
+        ("Supply chain", [("packages.html", "Dependencies & Stack", "📦"), ("config.html", "Config & Secrets", "🔑")]),
     ];
 
     /// <param name="relRoot">"" for root pages, "../" for pages under files/.</param>

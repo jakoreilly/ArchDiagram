@@ -51,6 +51,8 @@ graphs, and a dedicated page per file. Every diagram supports pan, zoom, hover d
         sb.Append("</div>");
 
         AppendHealthSummary(sb, model);
+        AppendTopActions(sb, model);
+        AppendStackChips(sb, model);
 
         // Language breakdown bar.
         if (totalLoc > 0)
@@ -243,6 +245,44 @@ graphs, and a dedicated page per file. Every diagram supports pan, zoom, hover d
             sb.Append("</div>");
         }
         sb.Append("</div>");
+    }
+
+    /// <summary>The top few refactoring-backlog items on the dashboard — the single most useful
+    /// "where do I start?" cue — linking to the full backlog.</summary>
+    private static void AppendTopActions(StringBuilder sb, ProjectModel model)
+    {
+        var items = Analysis.RefactoringBacklog.Build(model);
+        if (items.Count == 0) { return; }
+        sb.Append("<div class=\"panel\"><h2 style=\"margin-top:0\">Top refactoring actions "
+                + "<a href=\"refactor.html\" style=\"font-size:.8rem;font-weight:400\">full backlog (" + items.Count + ") →</a></h2>");
+        sb.Append("<ul class=\"member-list\" style=\"font-family:inherit\">");
+        var first = true;
+        foreach (var i in items.Take(5))
+        {
+            var cls = i.Severity is Analysis.RefactoringBacklog.Sev.Critical or Analysis.RefactoringBacklog.Sev.High ? "warn" : "";
+            var style = first ? " style=\"border-top:none\"" : "";
+            first = false;
+            var title = i.Link.Length > 0 ? $"<a href=\"{Html.Encode(i.Link)}\">{Html.Encode(i.Title)}</a>" : Html.Encode(i.Title);
+            sb.Append($"<li{style}><span class=\"badge {cls}\">{i.Severity.ToString().ToLowerInvariant()}</span> {title}"
+                    + $"<div class=\"note\" style=\"margin:.15rem 0 0\">{Html.Encode(i.Tip)}</div></li>");
+        }
+        sb.Append("</ul></div>");
+    }
+
+    /// <summary>A compact "detected stack" chip row on the dashboard, linking to the fuller
+    /// breakdown. Skipped silently when nothing is recognised.</summary>
+    private static void AppendStackChips(StringBuilder sb, ProjectModel model)
+    {
+        var stack = Analysis.TechStack.Detect(model);
+        if (stack.Count == 0) { return; }
+        sb.Append("<div class=\"panel\"><h2 style=\"margin-top:0\">Detected stack "
+                + "<a href=\"packages.html\" style=\"font-size:.8rem;font-weight:400\">dependencies &amp; stack →</a></h2>");
+        sb.Append("<div class=\"lang-legend\" style=\"gap:.4rem\">");
+        foreach (var t in stack.OrderBy(t => t.Category, StringComparer.Ordinal).ThenBy(t => t.Name, StringComparer.Ordinal))
+        {
+            sb.Append($"<span class=\"badge accent\" title=\"{Html.Encode(t.Category)}\">{Html.Encode(t.Name)}</span>");
+        }
+        sb.Append("</div></div>");
     }
 
     private static void Tile(StringBuilder sb, string num, string label, string? href = null)

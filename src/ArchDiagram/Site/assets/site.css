@@ -57,7 +57,9 @@ code { font-family: "Cascadia Code", Consolas, monospace; font-size: .9em; backg
 .brand-mark { font-size: 1.5rem; color: var(--accent); }
 .brand-name { font-weight: 700; letter-spacing: .02em; }
 .brand-sub { font-size: .75rem; color: var(--text-soft); word-break: break-all; }
-.sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+/* Nav scrolls within the fixed-height sidebar so a long, grouped menu never clips the
+   bottom sections (min-height:0 lets this flex child shrink below its content height). */
+.sidebar nav { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .sidebar nav a {
   display: flex; align-items: center; gap: .6rem; padding: .5rem .6rem;
   border-radius: 8px; color: var(--text); font-weight: 500;
@@ -170,6 +172,15 @@ table.grid { border-collapse: collapse; width: 100%; font-size: .88rem; backgrou
 table.grid th, table.grid td { text-align: left; padding: .45rem .7rem; border-bottom: 1px solid var(--border); }
 table.grid th { background: var(--bg-sunken); font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-soft); }
 table.grid tr:last-child td { border-bottom: none; }
+
+/* ---- Print (System Brief and any page) ---- */
+@media print {
+  .sidebar, .breadcrumbs, .search-open, .explain, .hover-tip, .explain-pop { display: none !important; }
+  .layout { display: block; }
+  .content { max-width: none; padding: 0; }
+  .panel, .tile, table.grid { box-shadow: none; }
+  a { color: inherit; text-decoration: none; }
+}
 
 /* ---- Test-file visibility toggle ---- */
 :root.hide-tests [data-test] { display: none !important; }
