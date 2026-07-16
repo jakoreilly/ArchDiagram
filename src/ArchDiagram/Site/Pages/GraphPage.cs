@@ -32,7 +32,9 @@ public static class GraphPage
 <strong>click any node to focus it</strong> — the graph re-centres on that file and its neighbours
 unfold around it while the rest fades back. This view encodes five <em>data</em> channels (see the
 legend); it is not five geometric dimensions — a screen is three at most.
-Toggle import and call edges independently, or type in the filter box to spotlight files by path, folder or language.</p>
+Toggle import and call edges independently, or type in the filter box to spotlight files by path, folder or language.
+Click a node and choose <strong>↯ Trace data flow</strong> to light up everything reachable downstream from it —
+the blast radius of a change or the paths a request can take — coloured by hops from that entry, with an optional animated pulse.</p>
 """);
         sb.Append(Embed(model, compact: false, relRoot: ""));
         return sb.ToString();
@@ -96,12 +98,6 @@ Toggle import and call edges independently, or type in the filter box to spotlig
   <label class="lf-search" for="g3d-filter">Filter
     <input type="search" id="g3d-filter" placeholder="path, folder or language…" autocomplete="off">
   </label>
-  <label class="lf-select" for="g3d-path">Critical path
-    <select id="g3d-path" title="Trace the shortest import chain from an entry point to a key file">
-      <option value="">— none —</option>
-    </select>
-    <button class="btn" id="g3d-path-play" type="button" title="Animate a pulse along the selected path" disabled>▶ Play</button>
-  </label>
 """);
         }
         sb.Append("""
@@ -140,6 +136,7 @@ Toggle import and call edges independently, or type in the filter box to spotlig
   <span class="legend-item"><span class="legend-swatch" style="background:#b7791f;border-color:#b7791f"></span> Amber edge = heuristic call (name + arity)</span>
   <span class="legend-item"><strong>Highlight</strong> = keep nodes with ≥/≤ N connections lit; dim the rest</span>
   <span class="legend-item"><strong>Click a node</strong> = focus + unfold its neighbours</span>
+  <span class="legend-item"><strong>↯ Trace data flow</strong> = highlight everything reachable downstream (calls + imports), coloured by hop-distance</span>
   <span class="legend-item" id="g3d-type-legend" hidden></span>
 </div>
 <p class="note" style="margin:.6rem 0 0">Five <strong>data</strong> channels — position, colour, size, edge

@@ -54,12 +54,6 @@ public static class GraphDataWriter
             .DistinctBy(e => (e.source, e.target, e.kind))
             .Take(MaxEdges).ToList();
 
-        // Critical paths to the most-central files — only those whose whole chain is in view.
-        var criticalPaths = Analysis.CriticalPaths.AllToKeyFiles(model, 8)
-            .Where(p => p.Nodes.All(shown.Contains))
-            .Select(p => new { target = p.TargetSlug, label = p.TargetLabel, nodes = p.Nodes })
-            .ToList();
-
         var payload = new
         {
             rootName = model.RootName,
@@ -68,7 +62,6 @@ public static class GraphDataWriter
             shownNodes = nodes.Count,
             nodes,
             edges,
-            criticalPaths,
         };
         return JsonSerializer.Serialize(payload, ModelJsonWriter.Options);
     }

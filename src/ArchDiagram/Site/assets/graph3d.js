@@ -102,8 +102,6 @@
   var hideOrphansEl = document.getElementById("g3d-hide-orphans");
   var freezeEl = document.getElementById("g3d-freeze");
   var typeLegendEl = document.getElementById("g3d-type-legend");
-  var pathEl = document.getElementById("g3d-path");
-  var pathPlayEl = document.getElementById("g3d-path-play");
 
   var colorMode = "coupling";     // "coupling" (default) | "folder" | "type"
   var degreeMode = "off";          // "off" | "ge" | "le"
@@ -174,12 +172,31 @@
   var ACCENT = function () { return cssVar("--accent") || "#2f6fab"; };
 
   var Graph = null, DATA = { nodes: [], links: [] }, ADJ = {}, focusId = null;
-  var PATH = null, playing = false;   // critical-path highlight state
-  function pathLinkHit(l) {
-    if (!PATH) { return false; }
+  // Data-flow trace: pick an ingress node, light up everything reachable downstream.
+  var FLOW = null, playing = false;
+  var FLOW_MAX_DEPTH = 6;
+  function flowEdgeHit(l) {
+    if (!FLOW) { return false; }
     var s = typeof l.source === "object" ? l.source.id : l.source;
     var t = typeof l.target === "object" ? l.target.id : l.target;
-    return PATH.edges[s + ">" + t] === true;
+    return FLOW.edges[s + ">" + t] === true;
+  }
+  // Colour by hop-distance from the ingress: source = danger red, then accent fading toward grey.
+  function flowColor(depth) {
+    if (depth === 0) { return cssVar("--danger") || "#c0392b"; }
+    var t = FLOW && FLOW.maxDepth > 0 ? Math.min(1, depth / FLOW.maxDepth) : 1;
+    var a = ACCENT(), m = MUTED();
+    function mix(h1, h2) {
+      var p = /^#([0-9a-f]{6})$/i;
+      if (!p.test(h1) || !p.test(h2)) { return h1; }
+      var c1 = h1.slice(1), c2 = h2.slice(1), out = "#";
+      for (var i = 0; i < 3; i++) {
+        var v1 = parseInt(c1.substr(i * 2, 2), 16), v2 = parseInt(c2.substr(i * 2, 2), 16);
+        out += ("0" + Math.round(v1 + (v2 - v1) * t).toString(16)).slice(-2);
+      }
+      return out;
+    }
+    return mix(a, m);
   }
   var lastGraphSig = null;          // visible node-set signature; skips spurious reheats
 
@@ -225,9 +242,9 @@
   // Colour precedence: focus dimming (when a node is focused) wins over the degree
   // highlight, which in turn overrides the plain base colour. Matches the legend.
   function nodeColor(n) {
-    if (PATH) {
-      if (!PATH.ids[n.id]) { return MUTED(); }
-      return n.id === PATH.target ? (cssVar("--danger") || "#c0392b") : ACCENT();
+    if (FLOW) {
+      var d = FLOW.depth[n.id];
+      return d == null ? MUTED() : flowColor(d);
     }
     if (focusId) {
       if (n.id === focusId) { return ACCENT(); }
@@ -245,7 +262,7 @@
     return base;
   }
   function linkColor(l) {
-    if (PATH) { return pathLinkHit(l) ? (cssVar("--danger") || "#c0392b") : MUTED(); }
+    if (FLOW) { return flowEdgeHit(l) ? ACCENT() : MUTED(); }
     if (filterText) {
       var s = typeof l.source === "object" ? l.source : null;
       var t = typeof l.target === "object" ? l.target : null;
@@ -253,8 +270,8 @@
     }
     return l.kind === "call" ? (cssVar("--warn") || "#b7791f") : ACCENT();
   }
-  function linkWidth(l) { return PATH && pathLinkHit(l) ? 3 : 1; }
-  function linkParticles(l) { return playing && pathLinkHit(l) ? 4 : 0; }
+  function linkWidth(l) { return FLOW && flowEdgeHit(l) ? 2.5 : 1; }
+  function linkParticles(l) { return playing && flowEdgeHit(l) ? 3 : 0; }
 
   function applyChannels() {
     if (!Graph) { return; }
@@ -284,11 +301,7 @@
   }
 
   function clearFocus() {
-    if (PATH) {
-      PATH = null; playing = false;
-      if (pathEl) { pathEl.value = ""; }
-      if (pathPlayEl) { pathPlayEl.disabled = true; pathPlayEl.textContent = "▶ Play"; }
-    }
+    if (FLOW) { FLOW = null; playing = false; }
     var wasIsolated = isolateActive();
     focusId = null;
     DATA.nodes.forEach(function (n) { n.__ego = false; });
@@ -297,71 +310,77 @@
     if (panel) { panel.hidden = true; }
   }
 
-  // ---- Critical paths: trace + optional pulse animation ----
-  function populatePathList() {
-    if (!pathEl) { return; }
-    var paths = DATA.criticalPaths || [];
-    if (!paths.length) { pathEl.parentNode && (pathEl.closest(".lf-select").style.display = "none"); return; }
-    var html = '<option value="">— none —</option>';
-    for (var i = 0; i < paths.length; i++) {
-      html += '<option value="' + i + '">' + esc(paths[i].label) + '</option>';
+  // ---- Data-flow trace: from an ingress node, everything reachable downstream ----
+  // Forward reach over DIRECTED edges (source depends-on/calls target), capped in depth.
+  // Every forward edge inside the reach set is recorded, so all branches show — not just a tree.
+  function forwardReach(startId, maxDepth) {
+    var fwd = {};
+    (DATA.links || []).forEach(function (l) {
+      var s = typeof l.source === "object" ? l.source.id : l.source;
+      var t = typeof l.target === "object" ? l.target.id : l.target;
+      (fwd[s] = fwd[s] || []).push(t);
+    });
+    var depth = {}, edges = {}, queue = [startId];
+    depth[startId] = 0;
+    while (queue.length) {
+      var cur = queue.shift();
+      (fwd[cur] || []).forEach(function (t) {
+        if (depth[cur] < maxDepth) { edges[cur + ">" + t] = true; }
+        if (!(t in depth)) { depth[t] = depth[cur] + 1; if (depth[t] < maxDepth) { queue.push(t); } }
+      });
     }
-    pathEl.innerHTML = html;
+    var reached = Object.keys(depth).length, dmax = 0;
+    Object.keys(depth).forEach(function (k) { if (depth[k] > dmax) { dmax = depth[k]; } });
+    return { start: startId, depth: depth, edges: edges, maxDepth: Math.max(1, dmax), reached: reached };
   }
 
-  function clearPath() { clearFocus(); }
-
-  function selectPath(idx) {
-    var paths = DATA.criticalPaths || [];
-    var p = paths[idx];
-    if (!p) { clearPath(); return; }
-    var byId = {}; DATA.nodes.forEach(function (n) { byId[n.id] = n; });
-    PATH = { target: p.target, ids: {}, edges: {}, order: p.nodes };
-    for (var i = 0; i < p.nodes.length; i++) {
-      PATH.ids[p.nodes[i]] = true;
-      if (i > 0) { PATH.edges[p.nodes[i - 1] + ">" + p.nodes[i]] = true; }
-    }
+  function startFlow(id) {
+    FLOW = forwardReach(id, FLOW_MAX_DEPTH);
     playing = false;
-    if (pathPlayEl) { pathPlayEl.disabled = false; pathPlayEl.textContent = "▶ Play"; }
-    // Reuse focus for the camera fly-in + ego layout, then our PATH styling overrides colour.
-    focusId = p.target;
+    focusId = null;
     DATA.nodes.forEach(function (n) { n.__ego = false; });
     applyChannels();
-    var tgt = byId[p.target];
-    if (tgt && typeof tgt.x === "number") {
-      var d = 140, dist0 = Math.hypot(tgt.x, tgt.y, tgt.z || 0), ratio = dist0 > 1 ? 1 + d / dist0 : 1;
-      Graph.cameraPosition({ x: tgt.x * ratio, y: tgt.y * ratio, z: (tgt.z || 0) * ratio + d },
-        { x: tgt.x, y: tgt.y, z: tgt.z || 0 }, 800);
+    var node = DATA.nodes.find(function (n) { return n.id === id; });
+    if (node && typeof node.x === "number") {
+      var d = 160, dist0 = Math.hypot(node.x, node.y, node.z || 0), ratio = dist0 > 1 ? 1 + d / dist0 : 1;
+      Graph.cameraPosition({ x: node.x * ratio, y: node.y * ratio, z: (node.z || 0) * ratio + d },
+        { x: node.x, y: node.y, z: node.z || 0 }, 800);
     }
-    showPathPanel(p, byId);
+    showFlowPanel(node);
   }
 
-  // Side panel: the chain, hop-by-hop, with cumulative coupling transferred along the way.
-  function showPathPanel(p, byId) {
-    if (!panel) { return; }
-    var cum = 0;
-    var rows = p.nodes.map(function (id, i) {
-      var n = byId[id] || { label: id, fanIn: 0, fanOut: 0 };
-      cum += (n.fanIn || 0) + (n.fanOut || 0);
-      var arrow = i === 0 ? '<span class="badge">entry</span> ' : '<span class="crumb-sep">→</span> ';
-      return '<li>' + arrow + esc(n.label) +
-        ' <span class="filter-count">coupling ' + ((n.fanIn || 0) + (n.fanOut || 0)) +
-        ' · Σ ' + cum + '</span></li>';
+  function showFlowPanel(node) {
+    if (!panel || !FLOW) { return; }
+    // Count nodes per hop level.
+    var perHop = {};
+    Object.keys(FLOW.depth).forEach(function (k) { var d = FLOW.depth[k]; perHop[d] = (perHop[d] || 0) + 1; });
+    var levels = Object.keys(perHop).map(Number).sort(function (a, b) { return a - b; });
+    var rows = levels.map(function (d) {
+      return '<li>' + (d === 0 ? '<span class="badge" style="background:var(--danger);color:#fff">ingress</span>'
+        : '<span class="badge">hop ' + d + '</span>') + ' ' + perHop[d] + ' file(s)</li>';
     }).join("");
-    panel.innerHTML =
-      '<h3 style="margin-top:0">Critical path</h3>' +
-      '<p class="note">Entry point → <strong>' + esc(p.label) + '</strong> · ' + (p.nodes.length - 1) + ' hop(s) · ' +
-      'total coupling along the path <strong>' + cum + '</strong>.</p>' +
-      '<ul class="member-list" style="font-family:inherit">' + rows + '</ul>' +
-      '<p class="note">Press <strong>Play</strong> to pulse the flow. Pick “— none —” to exit.</p>';
+    var capped = FLOW.reached > 1 && levels[levels.length - 1] >= FLOW_MAX_DEPTH;
     panel.hidden = false;
-  }
-
-  function togglePlay() {
-    if (!PATH) { return; }
-    playing = !playing;
-    if (pathPlayEl) { pathPlayEl.textContent = playing ? "⏸ Pause" : "▶ Play"; }
-    applyChannels();
+    panel.innerHTML =
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:.5rem">' +
+      '<strong style="font-size:.95rem">Data flow from ' + esc(node ? node.label : FLOW.start) + '</strong>' +
+      '<button class="btn" id="g3d-flow-close" type="button" title="Exit flow">✕</button></div>' +
+      '<p class="note" style="margin:.3rem 0">Everything reachable downstream (calls + imports) from this ingress: ' +
+      '<strong>' + (FLOW.reached - 1) + '</strong> file(s) over <strong>' + FLOW.maxDepth + '</strong> hop(s)' +
+      (capped ? ' (depth capped at ' + FLOW_MAX_DEPTH + ')' : '') + '.</p>' +
+      '<p style="margin:.4rem 0"><button class="btn btn-primary" id="g3d-flow-play" type="button">▶ Play flow</button></p>' +
+      '<ul class="member-list" style="font-family:inherit">' + rows + '</ul>' +
+      '<p class="note">Colour = hops from the ingress (red → grey). Click the background or ✕ to exit.</p>';
+    var closeBtn = panel.querySelector("#g3d-flow-close");
+    if (closeBtn) { closeBtn.onclick = clearFocus; }
+    var playBtn = panel.querySelector("#g3d-flow-play");
+    if (playBtn) {
+      playBtn.onclick = function () {
+        playing = !playing;
+        playBtn.textContent = playing ? "⏸ Pause flow" : "▶ Play flow";
+        applyChannels();
+      };
+    }
   }
 
   function sourceControl(node) {
@@ -393,11 +412,15 @@
       '<span class="badge">in ' + (node.fanIn || 0) + '</span> ' +
       '<span class="badge">out ' + (node.fanOut || 0) + '</span></p>' +
       '<p style="margin:.5rem 0;display:flex;gap:.4rem;flex-wrap:wrap">' +
-      '<a class="btn" href="' + node.href + '">Open file page →</a>' + sourceControl(node) + '</p>' +
+      '<a class="btn" href="' + node.href + '">Open file page →</a>' +
+      '<button class="btn btn-primary" id="g3d-flow-start" type="button" title="Highlight everything reachable downstream from this file">↯ Trace data flow</button>' +
+      sourceControl(node) + '</p>' +
       '<p class="note" style="margin:.4rem 0 .2rem">Neighbours (' + neighbours.length + ') — click to refocus</p>' +
       '<ul class="graph3d-neighbours">' + items + '</ul>';
 
     panel.querySelector("#g3d-panel-close").onclick = clearFocus;
+    var flowBtn = panel.querySelector("#g3d-flow-start");
+    if (flowBtn) { flowBtn.onclick = function () { startFlow(node.id); }; }
     var setBtn = panel.querySelector("#g3d-setsource");
     if (setBtn && window.ArchSourceLink) { setBtn.onclick = function () { window.ArchSourceLink.prompt(); }; }
     panel.querySelectorAll(".graph3d-neighbours li").forEach(function (li) {
@@ -497,7 +520,7 @@
   }
 
   function init(data) {
-    DATA = { nodes: data.nodes || [], links: data.edges || [], criticalPaths: data.criticalPaths || [] };
+    DATA = { nodes: data.nodes || [], links: data.edges || [] };
     buildAdjacency(DATA.links);
     maxDegree = DATA.nodes.reduce(function (m, n) { return Math.max(m, degreeOf(n)); }, 1);
     restorePrefs();
@@ -539,14 +562,6 @@
     }
 
     populateSearchList();
-    populatePathList();
-    if (pathEl) {
-      pathEl.addEventListener("change", function () {
-        var v = pathEl.value;
-        if (v === "") { clearPath(); } else { selectPath(+v); }
-      });
-    }
-    if (pathPlayEl) { pathPlayEl.addEventListener("click", togglePlay); }
     applyChannels();
     lastGraphSig = null; // force the first data push
     applyGraphData();
