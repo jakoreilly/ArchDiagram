@@ -71,17 +71,26 @@ public static class CsprojScanner
                 diagnostics.Add($"Could not parse {f.RelPath}: {ex.Message}");
             }
 
-            // Connection strings from .cs files this project owns (nearest-enclosing, B10).
+            // Connection strings from the files this project owns (nearest-enclosing, B10) —
+            // C# source AND the config where real services keep them (appsettings*.json,
+            // web.config/app.config). See IsConnStringSource.
             var dbUses = new List<DbUse>();
-            foreach (var cs in files.Where(x => x.Extension == ".cs" &&
+            foreach (var cs in files.Where(x => IsConnStringSource(x) &&
                          string.Equals(OwningProject(x.RelPath), f.RelPath, StringComparison.OrdinalIgnoreCase)))
             {
                 string text;
                 try { text = File.ReadAllText(cs.AbsPath); }
                 catch (IOException) { continue; }
 
+                var lines = text.Split('\n');
                 foreach (var hit in SourceTextScanner.FindConnectionStringLiterals(text))
                 {
+                    // Skip Web.config XDT transform directives: their connection strings are
+                    // build-time placeholders (e.g. Data Source=ReleaseSQLServer), not real
+                    // databases. The marker is an xdt: attribute on the same line.
+                    var ln = hit.LineNumber - 1;
+                    if (ln >= 0 && ln < lines.Length
+                        && lines[ln].Contains("xdt:", StringComparison.OrdinalIgnoreCase)) { continue; }
                     dbUses.Add(BuildDbUse(hit, $"{cs.RelPath}:{hit.LineNumber}"));
                 }
             }
@@ -98,6 +107,29 @@ public static class CsprojScanner
         }
 
         return results;
+    }
+
+    /// <summary>Files ArchDiagram reads for connection strings: C# source, plus the config
+    /// where real services actually keep them — appsettings*.json (modern builds) and
+    /// *.config (web.config/app.config, older builds). All are scanned as text by the same
+    /// literal detector, so a "Server=…;Database=…" string is found wherever it lives.</summary>
+    private static bool IsConnStringSource(FileEntry f)
+    {
+        if (f.Extension == ".cs") { return true; }
+        var name = Path.GetFileName(f.RelPath);
+        if (f.Extension == ".json")
+        {
+            return name.StartsWith("appsettings", StringComparison.OrdinalIgnoreCase);
+        }
+        if (f.Extension == ".config")
+        {
+            // Skip Web.config / App.config XDT *transforms* (Web.Release.config,
+            // App.Debug.config, …): they hold placeholder connection strings for build-time
+            // substitution, not real databases. A runtime config's stem has no extra dot
+            // ("Web" / "App"); a transform's does ("Web.Release").
+            return !Path.GetFileNameWithoutExtension(name).Contains('.');
+        }
+        return false;
     }
 
     /// <summary>Label priority: catalog/database name > assigned variable name > short hash.</summary>
@@ -197,16 +229,48 @@ public static class SourceTextScanner
 public static class ConnectionStringNormalizer
 {
     private static readonly string[] SecretKeys = ["password", "pwd", "user id", "uid"];
+    private static readonly string[] ServerKeys = ["server", "data source", "host", "hostname", "address", "addr", "network address"];
+    private static readonly string[] CatalogKeys = ["database", "initial catalog"];
 
+    /// <summary>Identity for cross-service DB matching: a canonical <c>server + catalog</c>
+    /// key, so the SAME physical database matches across services even when the rest of the
+    /// connection string differs (key aliases like Server vs Data Source, extra options such
+    /// as Encrypt/MARS, protocol/port noise). Falls back to the full normalized pair set only
+    /// when neither server nor catalog can be extracted, so unparseable strings stay distinct.</summary>
     public static string NormalizeAndHash(string connectionString)
     {
-        var pairs = SplitPairs(connectionString)
-            .Where(p => !SecretKeys.Contains(p.Key.ToLowerInvariant()))
-            .Select(p => ($"{p.Key.ToLowerInvariant()}={p.Value.ToLowerInvariant()}"))
-            .OrderBy(p => p, StringComparer.Ordinal);
-        var normalized = string.Join(';', pairs);
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
+        var server = CanonicalHost(ExtractValue(connectionString, ServerKeys));
+        var catalog = (ExtractValue(connectionString, CatalogKeys) ?? "").Trim().ToLowerInvariant();
+
+        string basis;
+        if (server.Length > 0 || catalog.Length > 0)
+        {
+            basis = $"srv={server};cat={catalog}";
+        }
+        else
+        {
+            var pairs = SplitPairs(connectionString)
+                .Where(p => !SecretKeys.Contains(p.Key.ToLowerInvariant()))
+                .Select(p => ($"{p.Key.ToLowerInvariant()}={p.Value.ToLowerInvariant()}"))
+                .OrderBy(p => p, StringComparer.Ordinal);
+            basis = string.Join(';', pairs);
+        }
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(basis));
         return Convert.ToHexStringLower(bytes);
+    }
+
+    /// <summary>Canonicalize a SQL host so trivial differences don't split one database into
+    /// two: lowercase, strip a protocol prefix (<c>tcp:</c>, <c>np:</c>), and drop a trailing
+    /// <c>,port</c>. Conservative — it does not touch instance names or domain suffixes.</summary>
+    private static string CanonicalHost(string? server)
+    {
+        if (string.IsNullOrWhiteSpace(server)) { return ""; }
+        var s = server.Trim().ToLowerInvariant();
+        var colon = s.IndexOf(':');           // "tcp:host" / "np:host" -> "host"
+        if (colon is >= 0 and <= 4) { s = s[(colon + 1)..]; }
+        var comma = s.IndexOf(',');           // "host,1433" -> "host"
+        if (comma >= 0) { s = s[..comma]; }
+        return s.Trim();
     }
 
     /// <summary>Returns the first non-empty value for any of the given keys

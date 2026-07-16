@@ -11,7 +11,7 @@ public class PipelineTests
     public void Finds_all_fixture_files()
     {
         var model = Build();
-        Assert.Equal(10, model.Files.Count);
+        Assert.Equal(13, model.Files.Count);
         Assert.Contains(model.Files, f => f.RelPath == "App/Program.cs");
     }
 
@@ -42,6 +42,42 @@ public class PipelineTests
         var model = Build();
         var use = model.Projects.Single(p => p.Name == "App").ConnectionStrings.Single();
         Assert.Equal("ordersDb", use.VariableName);
+    }
+
+    [Fact]
+    public void Connection_strings_are_found_in_appsettings_and_config()
+    {
+        var model = Build();
+        var lib = model.Projects.Single(p => p.Name == "Lib");
+        // Real services keep connection strings in config, not .cs — both must be detected.
+        Assert.Contains(lib.ConnectionStrings, u => u.Evidence.Contains("appsettings.json", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(lib.ConnectionStrings, u => u.Evidence.Contains("web.config", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Same_database_matches_across_key_alias_and_option_differences()
+    {
+        var model = Build();
+        // App: "Server=db1;Database=orders;…" (.cs); Lib appsettings: "Data Source=db1;Initial
+        // Catalog=orders;…"; Lib web.config: "Server=tcp:db1,1433;Database=orders;…". All point
+        // at the same physical DB, so they must collapse to ONE node by canonical server+catalog.
+        var db = Assert.Single(model.Databases);
+        Assert.Equal("orders", db.Catalog);
+        Assert.Equal("db1", db.Server);
+    }
+
+    [Fact]
+    public void Web_config_xdt_transform_placeholders_are_ignored()
+    {
+        var model = Build();
+        // App/Web.Release.config is an XDT transform whose connection string is a build-time
+        // placeholder (Data Source=ReleaseSQLServer;Initial Catalog=MyReleaseDB). It must not
+        // be mistaken for a real database.
+        Assert.DoesNotContain(model.Databases, d =>
+            d.Catalog.Equals("MyReleaseDB", StringComparison.OrdinalIgnoreCase)
+            || d.Server.Equals("ReleaseSQLServer", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(model.Projects.SelectMany(p => p.ConnectionStrings),
+            u => u.Evidence.Contains("Web.Release.config", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
