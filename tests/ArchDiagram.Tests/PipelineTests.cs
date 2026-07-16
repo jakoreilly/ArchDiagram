@@ -81,6 +81,19 @@ public class PipelineTests
     }
 
     [Fact]
+    public void Primary_language_ignores_vendored_and_test_code()
+    {
+        var model = new Graph.ProjectModel { RootName = "R", SourcePath = "C:/r" };
+        model.Files.Add(new Graph.FileNode { RelPath = "src/A.cs", Slug = "a", Language = "C#", Loc = 500 });
+        model.Files.Add(new Graph.FileNode { RelPath = "assets/lib/x.min.js", Slug = "x", Language = "TypeScript/JavaScript", Loc = 80000, IsVendored = true });
+        model.Files.Add(new Graph.FileNode { RelPath = "tests/BTests.cs", Slug = "b", Language = "C#", Loc = 400, IsTest = true });
+        // Vendored 80k JS must not make this a "TypeScript/JavaScript codebase".
+        Assert.Equal("C#", Analysis.CodebaseStats.PrimaryLanguage(model));
+        Assert.Equal(500, Analysis.CodebaseStats.FirstPartyLoc(model));
+        Assert.Contains("C# codebase", Analysis.NarrativeBuilder.ProjectSummary(model));
+    }
+
+    [Fact]
     public void Generated_site_output_is_not_scanned_as_source()
     {
         var model = Build();

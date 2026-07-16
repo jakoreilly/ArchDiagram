@@ -8,9 +8,16 @@ public static class IndexPage
 {
     public static string Body(ProjectModel model, int maxNodes, string generatedOn)
     {
-        var totalLoc = model.LanguageLoc.Values.Sum();
-        var typeCount = model.Files.Sum(f => f.Types.Count);
-        var methodCount = model.Files.Sum(f => f.Types.Sum(t => t.Methods.Count));
+        // Headline figures describe first-party code (exclude tests and vendored/minified
+        // bundles) so they never mischaracterize the project; the excluded totals are shown
+        // as an explicit breakdown beneath the language bar.
+        var languageLoc = Analysis.CodebaseStats.FirstPartyLanguageLoc(model);
+        var totalLoc = languageLoc.Values.Sum();
+        var testLoc = Analysis.CodebaseStats.TestLoc(model);
+        var vendoredLoc = Analysis.CodebaseStats.VendoredLoc(model);
+        var firstParty = model.Files.Where(Analysis.CodebaseStats.IsFirstParty).ToList();
+        var typeCount = firstParty.Sum(f => f.Types.Count);
+        var methodCount = firstParty.Sum(f => f.Types.Sum(t => t.Methods.Count));
 
         var sb = new StringBuilder();
         sb.Append($"<h1>{Html.Encode(model.RootName)} — Architecture Overview</h1>");
@@ -29,24 +36,26 @@ graphs, and a dedicated page per file. Every diagram supports pan, zoom, hover d
         sb.Append("<p class=\"note\">New to this report? <a href=\"guide.html\">Read the Guide</a> for how to read each page, "
                 + "what the diagram shapes mean, and the limits of the analysis.</p>");
 
+        AppendDataQuality(sb, model);
+
         // Stat tiles.
         sb.Append("<div class=\"tiles\">");
         Tile(sb, model.Files.Count.ToString("N0"), "Files", "structure.html");
-        Tile(sb, totalLoc.ToString("N0"), "Lines of code", "structure.html");
+        Tile(sb, totalLoc.ToString("N0"), "Lines of code (first-party)", "structure.html");
         Tile(sb, model.Projects.Count.ToString("N0"), "Projects (.csproj)");
         Tile(sb, typeCount.ToString("N0"), "Types", "types.html");
         Tile(sb, methodCount.ToString("N0"), "Methods", "calls.html");
         Tile(sb, model.FileDependencies.Count(d => d.ToSlug.Length > 0).ToString("N0"), "File links", "dependencies.html");
         Tile(sb, model.Databases.Count.ToString("N0"), "Databases", "dependencies.html");
-        Tile(sb, model.LanguageLoc.Count.ToString("N0"), "Languages");
+        Tile(sb, languageLoc.Count.ToString("N0"), "Languages");
         sb.Append("</div>");
 
         // Language breakdown bar.
         if (totalLoc > 0)
         {
-            sb.Append("<div class=\"panel\"><h2 style=\"margin-top:0\">Language breakdown <span class=\"badge\">by lines of code</span></h2>");
+            sb.Append("<div class=\"panel\"><h2 style=\"margin-top:0\">Language breakdown <span class=\"badge\">first-party lines of code</span></h2>");
             sb.Append("<div class=\"lang-bar\">");
-            var ordered = model.LanguageLoc.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal).ToList();
+            var ordered = languageLoc.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal).ToList();
             var fallbackIdx = 0;
             var colors = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var (lang, loc) in ordered)
@@ -61,7 +70,16 @@ graphs, and a dedicated page per file. Every diagram supports pan, zoom, hover d
             {
                 sb.Append($"<span><span class=\"lang-dot\" style=\"background:{colors[lang]}\"></span>{Html.Encode(lang)} · {loc:N0}</span>");
             }
-            sb.Append("</div></div>");
+            sb.Append("</div>");
+            if (testLoc > 0 || vendoredLoc > 0)
+            {
+                var parts = new List<string> { $"<strong>{totalLoc:N0}</strong> first-party" };
+                if (testLoc > 0) { parts.Add($"{testLoc:N0} test"); }
+                if (vendoredLoc > 0) { parts.Add($"{vendoredLoc:N0} vendored/minified"); }
+                sb.Append($"<p class=\"note\" style=\"margin:.6rem 0 0\">Lines of code: {string.Join(" · ", parts)}. "
+                        + "Headline figures above count first-party code only, so bundled libraries and tests don't skew them.</p>");
+            }
+            sb.Append("</div>");
         }
 
         // Architecture. The static Mermaid diagram is genuinely useful when there are
@@ -117,7 +135,7 @@ graphs, and a dedicated page per file. Every diagram supports pan, zoom, hover d
         // Diagnostics.
         if (model.Diagnostics.Count > 0)
         {
-            sb.Append($"<h2>Scan diagnostics <span class=\"badge warn\">{model.Diagnostics.Count}</span></h2>");
+            sb.Append($"<h2 id=\"diagnostics\">Scan diagnostics <span class=\"badge warn\">{model.Diagnostics.Count}</span></h2>");
             sb.Append("<div class=\"panel diag-list\"><ul>");
             foreach (var d in model.Diagnostics.Take(50)) { sb.Append($"<li>{Html.Encode(d)}</li>"); }
             if (model.Diagnostics.Count > 50) { sb.Append($"<li>… and {model.Diagnostics.Count - 50} more (see model.json)</li>"); }
@@ -156,6 +174,33 @@ graphs, and a dedicated page per file. Every diagram supports pan, zoom, hover d
                       $"<td>{Html.Encode(s.File.Purpose)}</td></tr>");
         }
         sb.Append("</tbody></table>");
+    }
+
+    /// <summary>A short "how much to trust this" panel: what the scan measures exactly vs
+    /// heuristically, and a pointer to any scan diagnostics. Sets reviewer expectations up
+    /// front so a heuristic figure is never mistaken for ground truth.</summary>
+    private static void AppendDataQuality(StringBuilder sb, ProjectModel model)
+    {
+        var csharpFiles = model.Files.Count(f => f.Language == "C#" && !f.IsTest);
+        var items = new List<string>
+        {
+            "<strong>Exact:</strong> file inventory, sizes, folder structure, and project references (read from <code>.csproj</code>).",
+            "<strong>Syntax-only:</strong> C# types and members come from parsing without compiling — generics, partials and generated code may be approximate.",
+            "<strong>Heuristic:</strong> import/dependency links are matched from source text; call links are matched by method name and parameter count, so overloads across types can over- or under-link.",
+            "<strong>Excluded from headline figures:</strong> test files and vendored/minified bundles (shown separately), so size and language reflect first-party code.",
+        };
+        if (csharpFiles == 0)
+        {
+            items.Add("<strong>Note:</strong> no C# detected — Types, Members and Call Graph pages will be sparse; this codebase is analysed at inventory/import level only.");
+        }
+        var diag = model.Diagnostics.Count > 0
+            ? $" <a href=\"#diagnostics\">{model.Diagnostics.Count} scan diagnostic(s)</a> were recorded (e.g. files too large for deep analysis, unreadable paths)."
+            : " No scan diagnostics were recorded.";
+        sb.Append("<details class=\"legend\"><summary>Data quality &amp; confidence — what these numbers mean</summary>");
+        sb.Append("<div class=\"legend-grid\" style=\"flex-direction:column;gap:.4rem\">");
+        foreach (var it in items) { sb.Append($"<span class=\"legend-item\">{it}</span>"); }
+        sb.Append($"<span class=\"legend-item\">{diag}</span>");
+        sb.Append("</div></details>");
     }
 
     private static void Tile(StringBuilder sb, string num, string label, string? href = null)

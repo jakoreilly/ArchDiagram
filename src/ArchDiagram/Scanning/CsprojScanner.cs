@@ -14,7 +14,7 @@ public static class CsprojScanner
 {
     public static List<CsprojInfo> Scan(string root, IReadOnlyList<FileEntry> files, List<string> diagnostics)
     {
-        var csprojFiles = files.Where(f => f.Extension == ".csproj")
+        var csprojFiles = files.Where(f => f.Extension == ".csproj" && !IsFixtureProject(f.RelPath))
             .OrderBy(f => f.RelPath, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -48,6 +48,7 @@ public static class CsprojScanner
 
             var refs = new List<string>();
             var packages = new List<string>();
+            var packageRefs = new List<PackageRef>();
             var tfm = "";
             try
             {
@@ -62,7 +63,13 @@ public static class CsprojScanner
                 foreach (var el in xml.Descendants().Where(e => e.Name.LocalName == "PackageReference"))
                 {
                     var include = (string?)el.Attribute("Include");
-                    if (!string.IsNullOrWhiteSpace(include)) { packages.Add(include); }
+                    if (string.IsNullOrWhiteSpace(include)) { continue; }
+                    packages.Add(include);
+                    // Version can be an attribute or a child element; empty under Central Package Management.
+                    var version = (string?)el.Attribute("Version")
+                        ?? el.Elements().FirstOrDefault(e => e.Name.LocalName == "Version")?.Value
+                        ?? "";
+                    packageRefs.Add(new PackageRef(include.Trim(), version.Trim()));
                 }
                 tfm = xml.Descendants().FirstOrDefault(e => e.Name.LocalName is "TargetFramework" or "TargetFrameworks")?.Value ?? "";
             }
@@ -104,6 +111,7 @@ public static class CsprojScanner
                 TargetFramework = tfm,
                 ProjectReferenceNames = refs.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(r => r, StringComparer.Ordinal).ToList(),
                 PackageReferences = packages.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(p => p, StringComparer.Ordinal).ToList(),
+                Packages = packageRefs.DistinctBy(p => (p.Name, p.Version)).OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList(),
                 ConnectionStrings = dbUses,
             });
         }
@@ -126,6 +134,23 @@ public static class CsprojScanner
             || t.StartsWith("/*", StringComparison.Ordinal)
             || t.StartsWith("<!--", StringComparison.Ordinal)
             || t.StartsWith("#", StringComparison.Ordinal);
+    }
+
+    private static readonly string[] FixtureDirSegments =
+        ["fixtures", "__fixtures__", "testfixtures", "testdata", "test-data", "test_data"];
+
+    /// <summary>A .csproj that lives under a test-fixture/sample-data folder is embedded sample
+    /// data, not a real solution project — counting it inflates the project count and can skew
+    /// the "organised into N projects" narrative. Real test projects (e.g. Foo.Tests) are not
+    /// under a fixtures segment and are kept.</summary>
+    private static bool IsFixtureProject(string relPath)
+    {
+        var segs = relPath.Split('/');
+        for (var i = 0; i < segs.Length - 1; i++)
+        {
+            if (Array.IndexOf(FixtureDirSegments, segs[i].ToLowerInvariant()) >= 0) { return true; }
+        }
+        return false;
     }
 
     private static bool IsConnStringSource(FileEntry f)
@@ -171,6 +196,7 @@ public static class CsprojScanner
             Catalog = catalog,
             VariableName = hit.VariableName,
             Evidence = evidence,
+            HasCredential = ConnectionStringNormalizer.HasCredential(hit.RawConnectionString),
         };
     }
 
@@ -293,6 +319,17 @@ public static class ConnectionStringNormalizer
         var comma = s.IndexOf(',');           // "host,1433" -> "host"
         if (comma >= 0) { s = s[..comma]; }
         return s.Trim();
+    }
+
+    /// <summary>True when the connection string embeds a credential (a password/user-id pair
+    /// with a non-empty value) — a secret committed to source. The value is not returned.</summary>
+    public static bool HasCredential(string connectionString)
+    {
+        foreach (var (key, value) in SplitPairs(connectionString))
+        {
+            if (SecretKeys.Contains(key.ToLowerInvariant()) && !string.IsNullOrWhiteSpace(value)) { return true; }
+        }
+        return false;
     }
 
     /// <summary>Returns the first non-empty value for any of the given keys

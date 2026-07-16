@@ -14,9 +14,10 @@ public static class NarrativeBuilder
     {
         var clauses = new List<string>();
         var fileCount = model.Files.Count;
-        var loc = model.LanguageLoc.Values.Sum();
-        var primary = model.LanguageLoc.Count == 0 ? "mixed"
-            : model.LanguageLoc.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal).First().Key;
+        // Describe the project by its own (first-party) code, not vendored bundles or tests —
+        // otherwise a C# tool that ships a large JS library reads as a JS project.
+        var loc = CodebaseStats.FirstPartyLoc(model);
+        var primary = CodebaseStats.PrimaryLanguage(model);
         var topFolders = model.Files.Select(TopFolder).Distinct(StringComparer.OrdinalIgnoreCase).Count();
 
         clauses.Add($"{model.RootName} is a {primary} codebase of {fileCount:N0} file(s) ({loc:N0} lines) "

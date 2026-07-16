@@ -21,6 +21,9 @@ public sealed record ProjectModel
     public string Description { get; init; } = "";
     /// <summary>Author-written folder descriptions, keyed by source-root-relative folder path. Additive.</summary>
     public Dictionary<string, string> FolderDescriptions { get; init; } = [];
+    /// <summary>Declared architectural layers (top-to-bottom) from the optional layers sidecar;
+    /// empty when none. Drives the Layering page's contract check. Additive.</summary>
+    public List<LayerDef> Layers { get; init; } = [];
 }
 
 /// <summary>One source/config file in the scanned tree.</summary>
@@ -72,6 +75,9 @@ public sealed record MethodInfo
     /// when the last parameter is <c>params</c>). Additive; defaults track <see cref="Arity"/>.</summary>
     public int MaxArity { get; init; }
     public string Signature { get; init; } = "";
+    /// <summary>Declared modifiers, e.g. "public static". Empty for implicitly-private members.
+    /// Drives the public API-surface view. Additive.</summary>
+    public string Modifiers { get; init; } = "";
     public string XmlSummary { get; init; } = "";
     /// <summary>Cyclomatic complexity: 1 + count of decision points (see ComplexityMetrics).</summary>
     public int Cyclomatic { get; init; }
@@ -116,8 +122,20 @@ public sealed record CsprojInfo
     public string TargetFramework { get; init; } = "";
     public List<string> ProjectReferenceNames { get; init; } = [];
     public List<string> PackageReferences { get; init; } = [];
+    /// <summary>External NuGet references with their declared version (empty when the version is
+    /// managed centrally or absent). Drives the external-dependency / version-drift view. Additive.</summary>
+    public List<PackageRef> Packages { get; init; } = [];
     public List<DbUse> ConnectionStrings { get; init; } = [];
 }
+
+/// <summary>One NuGet package reference: name and declared version ("" when unknown, e.g. under
+/// Central Package Management where the version lives in Directory.Packages.props).</summary>
+public sealed record PackageRef(string Name, string Version);
+
+/// <summary>A declared architectural layer: a name and the module/namespace prefixes that belong
+/// to it. Layers are listed top-to-bottom (top may depend on lower, never the reverse). Loaded
+/// from an optional <c>archdiagram.layers.json</c> sidecar; empty when none is provided.</summary>
+public sealed record LayerDef(string Name, List<string> Namespaces);
 
 /// <summary>A connection-string usage inside a project. Label is always
 /// human-readable (catalog > variable name > short hash); the full hash lives
@@ -130,6 +148,9 @@ public sealed record DbUse
     public string Catalog { get; init; } = "";
     public string VariableName { get; init; } = "";
     public string Evidence { get; init; } = "";
+    /// <summary>True when the raw connection string embedded a credential (password/user id) —
+    /// i.e. a secret committed to source/config. The secret value itself is never stored. Additive.</summary>
+    public bool HasCredential { get; init; }
 }
 
 /// <summary>One logical database node (deduped across projects by hash).</summary>

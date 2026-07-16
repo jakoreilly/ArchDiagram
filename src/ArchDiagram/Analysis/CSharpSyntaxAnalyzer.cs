@@ -145,6 +145,7 @@ public sealed class CSharpSyntaxAnalyzer : ILanguageAnalyzer
             MinArity = min,
             MaxArity = max,
             Signature = signature,
+            Modifiers = (decl as MemberDeclarationSyntax)?.Modifiers.ToString() ?? "",
             XmlSummary = GetXmlSummary(decl),
             Cyclomatic = ComplexityMetrics.Cyclomatic(decl),
             Cognitive = ComplexityMetrics.Cognitive(decl),

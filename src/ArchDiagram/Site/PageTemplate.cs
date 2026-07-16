@@ -21,10 +21,15 @@ public static class PageTemplate
         ("structure.html", "Structure", "🗀"),
         ("dependencies.html", "Dependencies", "⇄"),
         ("modules.html", "Modules", "⬡"),
+        ("layers.html", "Layering", "≡"),
         ("metrics.html", "Metrics", "📐"),
+        ("scorecard.html", "Scorecard", "✔"),
         ("graph.html", "Graph (3D)", "🕸"),
         ("types.html", "Types & Members", "❖"),
+        ("api.html", "API Surface", "⧉"),
         ("calls.html", "Call Graph", "☎"),
+        ("packages.html", "Packages", "📦"),
+        ("config.html", "Config & Secrets", "🔑"),
         ("hotspots.html", "Hotspots", "◉"),
     ];
 

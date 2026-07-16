@@ -27,8 +27,12 @@ public static class HotspotsPage
             }
         }
 
-        var todoFiles = model.Files.Where(f => f.Todos.Count > 0).ToList();
-        var todoCount = todoFiles.Sum(f => f.Todos.Count);
+        // Marker headline counts are first-party (test files often embed marker-shaped strings
+        // as fixture data — e.g. TodoScannerTests). Test markers still appear in the table,
+        // tagged data-test so the 🧪 toggle reveals them.
+        var todoFiles = model.Files.Where(f => f.Todos.Count > 0 && !f.IsVendored).ToList();
+        var todoCount = todoFiles.Where(f => !f.IsTest).Sum(f => f.Todos.Count);
+        var testTodoCount = todoFiles.Where(f => f.IsTest).Sum(f => f.Todos.Count);
 
         var sb = new StringBuilder();
         sb.Append("<h1>Hotspots &amp; Metrics</h1>");
@@ -42,7 +46,7 @@ TODO/FIXME left in comments. High fan-in files are risky to change; high fan-out
         Tile(sb, fanIn.Count.ToString("N0"), "Depended-on files");
         Tile(sb, external.Count.ToString("N0"), "External packages");
         Tile(sb, todoCount.ToString("N0"), "TODO / FIXME markers");
-        Tile(sb, model.Files.Count(f => f.Loc > 500).ToString("N0"), "Files over 500 LOC");
+        Tile(sb, model.Files.Count(f => f.Loc > 500 && !f.IsVendored).ToString("N0"), "Files over 500 LOC");
         if (showComplexity)
         {
             var complex = model.Files.SelectMany(f => f.Types).SelectMany(t => t.Methods)
@@ -60,10 +64,11 @@ TODO/FIXME left in comments. High fan-in files are risky to change; high fan-out
             fanOut, bySlug, "imports");
         sb.Append("</div>");
 
-        // Largest files.
+        // Largest files. Vendored/minified bundles are excluded — a 3 MB library would
+        // otherwise top this list and bury the project's own largest files.
         sb.Append("<h2>Largest files</h2>");
         sb.Append("<table class=\"grid\"><thead><tr><th>File</th><th>Language</th><th>LOC</th><th>Size</th><th>Types</th><th>Methods</th></tr></thead><tbody>");
-        foreach (var f in model.Files.OrderByDescending(f => f.Loc).Take(20))
+        foreach (var f in model.Files.Where(f => !f.IsVendored).OrderByDescending(f => f.Loc).Take(20))
         {
             sb.Append($"<tr{(f.IsTest ? " data-test=\"1\"" : "")}><td><a href=\"files/{f.Slug}.html\">{Html.Encode(f.RelPath)}</a></td>" +
                       $"<td>{Html.Encode(f.Language)}</td><td>{f.Loc:N0}</td><td>{StructurePage.FormatBytes(f.SizeBytes)}</td>" +
@@ -90,16 +95,25 @@ TODO/FIXME left in comments. High fan-in files are risky to change; high fan-out
         AppendOrphans(sb, model);
 
         // TODOs.
-        sb.Append($"<h2>TODO / FIXME markers <span class=\"badge warn\">{todoCount}</span></h2>");
-        if (todoCount == 0)
+        sb.Append($"<h2>TODO / FIXME markers <span class=\"badge {(todoCount > 0 ? "warn" : "ok")}\">{todoCount}</span></h2>");
+        if (todoCount == 0 && testTodoCount == 0)
         {
             sb.Append("<div class=\"panel empty-state\"><div class=\"big\">✓</div><p>No TODO, FIXME, HACK or BUG markers were found in comments. Clean!</p></div>");
         }
         else
         {
+            if (todoCount == 0)
+            {
+                sb.Append("<div class=\"panel empty-state\"><div class=\"big\">✓</div><p>No TODO/FIXME markers in first-party code.</p></div>");
+            }
+            if (testTodoCount > 0)
+            {
+                sb.Append($"<p class=\"note\">{testTodoCount:N0} marker(s) are in test files (often fixture strings, not real work) — "
+                        + "hidden by default; use the 🧪 Tests toggle to show them.</p>");
+            }
             sb.Append("<table class=\"grid\"><thead><tr><th>Tag</th><th>Text</th><th>File</th><th>Line</th></tr></thead><tbody>");
             var shown = 0;
-            foreach (var f in todoFiles.OrderByDescending(f => f.Todos.Count))
+            foreach (var f in todoFiles.OrderBy(f => f.IsTest).ThenByDescending(f => f.Todos.Count))
             {
                 foreach (var t in f.Todos)
                 {

@@ -38,17 +38,37 @@ public static class SiteGenerator
             PageTemplate.Crumbs(("index.html", "Overview"), (null, "Modules")),
             ModulesPage.Body(model, maxNodes));
 
+        WritePage(outDir, "layers.html", "Layering", model, "layers.html", "",
+            PageTemplate.Crumbs(("index.html", "Overview"), (null, "Layering")),
+            LayeringPage.Body(model));
+
         WritePage(outDir, "metrics.html", "Architecture Metrics", model, "metrics.html", "",
             PageTemplate.Crumbs(("index.html", "Overview"), (null, "Metrics")),
             MetricsPage.Body(model));
+
+        WritePage(outDir, "scorecard.html", "Architecture Scorecard", model, "scorecard.html", "",
+            PageTemplate.Crumbs(("index.html", "Overview"), (null, "Scorecard")),
+            ScorecardPage.Body(model));
 
         WritePage(outDir, "types.html", "Types & Members", model, "types.html", "",
             PageTemplate.Crumbs(("index.html", "Overview"), (null, "Types & Members")),
             TypesPage.Body(model, maxNodes));
 
+        WritePage(outDir, "api.html", "API Surface", model, "api.html", "",
+            PageTemplate.Crumbs(("index.html", "Overview"), (null, "API Surface")),
+            ApiSurfacePage.Body(model));
+
         WritePage(outDir, "calls.html", "Call Graph", model, "calls.html", "",
             PageTemplate.Crumbs(("index.html", "Overview"), (null, "Call Graph")),
             CallsPage.Body(model, maxNodes));
+
+        WritePage(outDir, "packages.html", "External Dependencies", model, "packages.html", "",
+            PageTemplate.Crumbs(("index.html", "Overview"), (null, "Packages")),
+            PackagesPage.Body(model));
+
+        WritePage(outDir, "config.html", "Config & Secrets", model, "config.html", "",
+            PageTemplate.Crumbs(("index.html", "Overview"), (null, "Config & Secrets")),
+            ConfigSecretsPage.Body(model));
 
         WritePage(outDir, "hotspots.html", "Hotspots & Metrics", model, "hotspots.html", "",
             PageTemplate.Crumbs(("index.html", "Overview"), (null, "Hotspots")),

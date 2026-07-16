@@ -12,7 +12,8 @@ public static class MarkdownExporter
     public static void Write(ProjectModel model, string path, int maxNodes, string generatedOn)
     {
         var sb = new StringBuilder();
-        var totalLoc = model.LanguageLoc.Values.Sum();
+        // First-party LOC (excludes tests and vendored bundles) so the figure matches the site.
+        var totalLoc = Analysis.CodebaseStats.FirstPartyLoc(model);
 
         sb.AppendLine($"# {model.RootName} — Architecture");
         sb.AppendLine();
@@ -41,6 +42,8 @@ public static class MarkdownExporter
         sb.AppendLine($"| File-to-file links | {model.FileDependencies.Count(d => d.ToSlug.Length > 0):N0} |");
         sb.AppendLine($"| Databases | {model.Databases.Count:N0} |");
         sb.AppendLine();
+
+        AppendScorecard(sb, model);
 
         if (model.LanguageLoc.Count > 0)
         {
@@ -128,6 +131,34 @@ public static class MarkdownExporter
         }
 
         File.WriteAllText(path, sb.ToString(), new UTF8Encoding(false));
+    }
+
+    private static void AppendScorecard(StringBuilder sb, ProjectModel model)
+    {
+        var card = Analysis.ScorecardBuilder.Build(model);
+        var overall = card.Overall switch
+        {
+            Analysis.ScorecardBuilder.Status.Ok => "PASS",
+            Analysis.ScorecardBuilder.Status.Watch => "WATCH",
+            Analysis.ScorecardBuilder.Status.Fail => "AT RISK",
+            _ => "—",
+        };
+        sb.AppendLine($"## Architecture scorecard — {overall}");
+        sb.AppendLine();
+        sb.AppendLine("| Signal | Value | Grade | Meaning |");
+        sb.AppendLine("|---|---|---|---|");
+        foreach (var r in card.Rows)
+        {
+            var grade = r.Status switch
+            {
+                Analysis.ScorecardBuilder.Status.Ok => "pass",
+                Analysis.ScorecardBuilder.Status.Watch => "watch",
+                Analysis.ScorecardBuilder.Status.Fail => "fail",
+                _ => "n/a",
+            };
+            sb.AppendLine($"| {MdEscape(r.Metric)} | {MdEscape(r.Value)} | {grade} | {MdEscape(r.Note)} |");
+        }
+        sb.AppendLine();
     }
 
     private static string MdEscape(string s) => s.Replace("|", "\\|").Replace("\n", " ");

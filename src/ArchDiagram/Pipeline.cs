@@ -132,6 +132,7 @@ public static class Pipeline
             LanguageLoc = languageLoc,
             Description = authored.Project,
             FolderDescriptions = new Dictionary<string, string>(authored.Folders, StringComparer.OrdinalIgnoreCase),
+            Layers = LayersLoader.Load(options.SourcePath, diagnostics),
             SourceLink = options.SourceLinkType is "none" or ""
                 ? null
                 : new SourceLink { Type = options.SourceLinkType, Base = options.SourceLinkBase, Ref = options.SourceLinkRef },
