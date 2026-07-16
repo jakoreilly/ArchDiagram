@@ -96,6 +96,12 @@ Toggle import and call edges independently, or type in the filter box to spotlig
   <label class="lf-search" for="g3d-filter">Filter
     <input type="search" id="g3d-filter" placeholder="path, folder or language…" autocomplete="off">
   </label>
+  <label class="lf-select" for="g3d-path">Critical path
+    <select id="g3d-path" title="Trace the shortest import chain from an entry point to a key file">
+      <option value="">— none —</option>
+    </select>
+    <button class="btn" id="g3d-path-play" type="button" title="Animate a pulse along the selected path" disabled>▶ Play</button>
+  </label>
 """);
         }
         sb.Append("""

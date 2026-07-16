@@ -65,6 +65,9 @@ code { font-family: "Cascadia Code", Consolas, monospace; font-size: .9em; backg
 .sidebar nav a:hover { background: var(--bg-sunken); text-decoration: none; }
 .sidebar nav a.active { background: var(--accent-soft); color: var(--accent); }
 .nav-icon { width: 1.2em; text-align: center; opacity: .8; }
+.nav-section { font-size: .68rem; text-transform: uppercase; letter-spacing: .07em; color: var(--text-soft);
+  font-weight: 700; padding: .6rem .6rem .2rem; margin-top: .2rem; }
+.nav-section:first-child { margin-top: 0; }
 .sidebar-foot { margin-top: auto; padding-top: .75rem; border-top: 1px solid var(--border); }
 
 /* ---- Content ---- */
@@ -123,6 +126,20 @@ a.tile:hover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
 .stage.panning { cursor: grabbing; }
 .stage svg { transform-origin: 0 0; max-width: none !important; user-select: none; }
 .diagram-error { color: var(--danger); padding: 1rem; font-size: .85rem; }
+
+/* ---- Explain (ⓘ) affordance + popover ---- */
+.explain { border: none; background: none; color: var(--accent); cursor: pointer; font-size: .95em;
+  padding: 0 .15em; line-height: 1; vertical-align: baseline; opacity: .75; }
+.explain:hover, .explain:focus { opacity: 1; }
+.explain:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.explain-pop {
+  position: fixed; z-index: 60; max-width: 360px; background: var(--bg-panel); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); padding: .7rem .85rem; font-size: .85rem;
+}
+.explain-pop .exp-term { font-weight: 700; margin-bottom: .25rem; }
+.explain-pop .exp-simple { color: var(--text); }
+.explain-pop .exp-detail { color: var(--text-soft); margin-top: .5rem; padding-top: .5rem; border-top: 1px solid var(--border); }
+.explain-pop .exp-more { margin-top: .5rem; background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; font-size: .82rem; }
 
 /* ---- Hover tooltip ---- */
 .hover-tip {

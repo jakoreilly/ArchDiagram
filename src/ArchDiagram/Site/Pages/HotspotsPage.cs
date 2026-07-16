@@ -56,10 +56,10 @@ TODO/FIXME left in comments. High fan-in files are risky to change; high fan-out
         sb.Append("</div>");
 
         sb.Append("<div class=\"two-col\">");
-        RankTable(sb, "Most depended-on <span class=\"badge\">fan-in</span>",
+        RankTable(sb, "Most depended-on <span class=\"badge\">fan-in</span> " + Glossary.Info("fan-in"),
             "Files many other files import. Changes here ripple widest.",
             fanIn, bySlug, "imported by");
-        RankTable(sb, "Most dependencies <span class=\"badge\">fan-out</span>",
+        RankTable(sb, "Most dependencies <span class=\"badge\">fan-out</span> " + Glossary.Info("fan-out"),
             "Files that import the most other files in this codebase.",
             fanOut, bySlug, "imports");
         sb.Append("</div>");
@@ -158,7 +158,7 @@ Only C# methods are scored.</p>
         }
 
         sb.Append("<table class=\"grid\"><thead><tr><th>Method</th><th>File</th><th>Type</th>" +
-                  "<th>Cyclomatic</th><th>Cognitive</th><th>Level</th></tr></thead><tbody>");
+                  $"<th>Cyclomatic {Glossary.Info("cyclomatic")}</th><th>Cognitive {Glossary.Info("cognitive")}</th><th>Level</th></tr></thead><tbody>");
         foreach (var (file, type, method) in methods.Take(25))
         {
             sb.Append($"<tr{(file.IsTest ? " data-test=\"1\"" : "")}><td><a href=\"files/{file.Slug}.html\">{Html.Encode(method.Name)}</a></td>" +

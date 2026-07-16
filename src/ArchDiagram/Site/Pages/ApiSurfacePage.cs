@@ -91,6 +91,9 @@ public static class ApiSurfacePage
     private static void AppendCriticalPaths(StringBuilder sb, ProjectModel model, Dictionary<string, FileNode> bySlug)
     {
         var key = Analysis.ImportanceScorer.Rank(model, 8).Where(s => Analysis.CodebaseStats.IsFirstParty(s.File)).ToList();
+        // Build the dependency graph once (not per file) and look each key file's path up.
+        var paths = Analysis.CriticalPaths.AllToKeyFiles(model, 8)
+            .ToDictionary(p => p.TargetSlug, p => p.Nodes, StringComparer.Ordinal);
         sb.Append("<h2>Critical paths <span class=\"badge accent\">to key files</span></h2>");
         if (key.Count == 0)
         {
@@ -106,7 +109,7 @@ public static class ApiSurfacePage
         {
             var style = first ? " style=\"border-top:none\"" : "";
             first = false;
-            var path = Analysis.CriticalPaths.ToFile(model, s.File.Slug);
+            paths.TryGetValue(s.File.Slug, out var path);
             string body;
             if (path is { Count: > 1 })
             {

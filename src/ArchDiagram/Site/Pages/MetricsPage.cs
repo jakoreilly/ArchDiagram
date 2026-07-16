@@ -67,8 +67,11 @@ public static class MetricsPage
         {
             sb.Append($"<p class=\"note\">Module names share the prefix <code>{Html.Encode(prefix)}</code>, omitted below.</p>");
         }
-        sb.Append("<table class=\"grid\"><thead><tr><th>Module</th><th>Files</th><th>Ca</th><th>Ce</th>"
-                + "<th>Instability</th><th>Abstractness</th><th>Distance</th><th>Verdict</th></tr></thead><tbody>");
+        sb.Append("<table class=\"grid\"><thead><tr><th>Module</th><th>Files</th>"
+                + $"<th>Ca {Glossary.Info("ca")}</th><th>Ce {Glossary.Info("ce")}</th>"
+                + $"<th>Instability {Glossary.Info("instability")}</th>"
+                + $"<th>Abstractness {Glossary.Info("abstractness")}</th>"
+                + $"<th>Distance {Glossary.Info("distance")}</th><th>Verdict</th></tr></thead><tbody>");
         foreach (var m in r.Modules)
         {
             var (label, cls) = ZoneBadge(ArchitectureMetrics.Classify(m.Instability, m.Abstractness, m.Ca));
@@ -128,8 +131,11 @@ public static class MetricsPage
   <span class="legend-item"><strong>Distance D = |A + I − 1|</strong> — distance from the main sequence; lower is healthier.</span>
   <span class="legend-item"><strong>Propagation cost</strong> — density of the transitive dependency matrix: how far a change can reach.</span>
 </div>
-</details>
 """);
+        sb.Append("<p class=\"note\" style=\"margin:.4rem 0 0\">New to these terms? Click the "
+                + Glossary.Info("distance") + " beside any metric for a plain-language explanation and a "
+                + "“Go deeper” technical detail.</p>");
+        sb.Append("</details>");
     }
 
     /// <summary>The three formulas shown big, each followed by the worst-distance module's

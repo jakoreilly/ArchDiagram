@@ -50,6 +50,8 @@ graphs, and a dedicated page per file. Every diagram supports pan, zoom, hover d
         Tile(sb, languageLoc.Count.ToString("N0"), "Languages");
         sb.Append("</div>");
 
+        AppendHealthSummary(sb, model);
+
         // Language breakdown bar.
         if (totalLoc > 0)
         {
@@ -201,6 +203,46 @@ graphs, and a dedicated page per file. Every diagram supports pan, zoom, hover d
         foreach (var it in items) { sb.Append($"<span class=\"legend-item\">{it}</span>"); }
         sb.Append($"<span class=\"legend-item\">{diag}</span>");
         sb.Append("</div></details>");
+    }
+
+    /// <summary>Dashboard "health at a glance": the scorecard's overall grade and the signals
+    /// that need attention, each a link to the page that explains and fixes it. Turns the
+    /// Overview into a landing that answers "is this healthy, and where do I look?".</summary>
+    private static void AppendHealthSummary(StringBuilder sb, ProjectModel model)
+    {
+        var card = Analysis.ScorecardBuilder.Build(model);
+        var (label, cls) = card.Overall switch
+        {
+            Analysis.ScorecardBuilder.Status.Ok => ("PASS", "ok"),
+            Analysis.ScorecardBuilder.Status.Watch => ("WATCH", "warn"),
+            Analysis.ScorecardBuilder.Status.Fail => ("AT RISK", "danger"),
+            _ => ("—", "border"),
+        };
+        var attention = card.Rows
+            .Where(r => r.Status is Analysis.ScorecardBuilder.Status.Watch or Analysis.ScorecardBuilder.Status.Fail)
+            .ToList();
+
+        sb.Append($"<div class=\"panel\" style=\"border-color:var(--{cls})\">");
+        sb.Append($"<h2 style=\"margin-top:0\">Health at a glance <span class=\"badge {(cls == "ok" ? "ok" : "warn")}\">{label}</span> "
+                + "<a href=\"scorecard.html\" style=\"font-size:.8rem;font-weight:400\">full scorecard →</a></h2>");
+        if (attention.Count == 0)
+        {
+            sb.Append("<p class=\"note\" style=\"margin:0\">All measured signals pass. See the scorecard for detail.</p>");
+        }
+        else
+        {
+            sb.Append("<p class=\"lede\" style=\"margin:.2rem 0 .6rem\">Signals needing attention (each links to the page that explains and fixes it):</p>");
+            sb.Append("<div class=\"lang-legend\" style=\"gap:.5rem\">");
+            foreach (var r in attention)
+            {
+                var rc = r.Status == Analysis.ScorecardBuilder.Status.Fail ? "warn" : "";
+                var link = r.Link.Length > 0 ? r.Link : "scorecard.html";
+                sb.Append($"<a class=\"badge {rc}\" href=\"{Html.Encode(link)}\" style=\"text-decoration:none\">"
+                        + $"{Html.Encode(r.Metric)}: {Html.Encode(r.Value)}</a>");
+            }
+            sb.Append("</div>");
+        }
+        sb.Append("</div>");
     }
 
     private static void Tile(StringBuilder sb, string num, string label, string? href = null)

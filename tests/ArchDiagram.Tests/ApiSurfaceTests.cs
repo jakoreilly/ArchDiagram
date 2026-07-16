@@ -36,6 +36,16 @@ public class ApiSurfaceTests
     public void Entry_point_has_no_inbound_path() => Assert.Null(CriticalPaths.ToFile(Chain(), "a"));
 
     [Fact]
+    public void AllToKeyFiles_returns_paths_for_central_files()
+    {
+        var paths = CriticalPaths.AllToKeyFiles(Chain(), 8);
+        // 'c' is the most depended-on sink; its path should be a → b → c.
+        var toC = paths.FirstOrDefault(p => p.TargetSlug == "c");
+        Assert.NotNull(toC);
+        Assert.Equal(new[] { "a", "b", "c" }, toC!.Nodes);
+    }
+
+    [Fact]
     public void Api_surface_lists_public_types_and_public_methods_only()
     {
         var m = new ProjectModel { RootName = "R", SourcePath = "C:/r" };

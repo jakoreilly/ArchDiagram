@@ -780,3 +780,56 @@
     refresh();
   })();
 })();
+
+// ---- Explain (ⓘ) popovers: Simple + Go deeper, from the embedded glossary ----
+(function () {
+  var pop = document.getElementById("explain-pop");
+  var dataEl = document.getElementById("arch-glossary");
+  if (!pop || !dataEl) { return; }
+  var glossary = {};
+  try { glossary = JSON.parse(dataEl.textContent) || {}; } catch (e) { glossary = {}; }
+
+  function title(term) {
+    return term.replace(/-/g, " ").replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+  }
+  function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
+  var current = null;
+  function close() { pop.hidden = true; current = null; }
+
+  function open(btn) {
+    var term = btn.getAttribute("data-term");
+    var entry = glossary[term];
+    if (!entry) { return; }
+    current = btn;
+    pop.innerHTML =
+      '<div class="exp-term">' + esc(title(term)) + '</div>' +
+      '<div class="exp-simple">' + esc(entry.simple) + '</div>' +
+      (entry.detail ? '<button class="exp-more" type="button">Go deeper ▾</button>' +
+        '<div class="exp-detail" hidden>' + esc(entry.detail) + '</div>' : '');
+    pop.hidden = false;
+    var more = pop.querySelector(".exp-more");
+    if (more) {
+      more.addEventListener("click", function () {
+        var d = pop.querySelector(".exp-detail");
+        var show = d.hidden;
+        d.hidden = !show;
+        more.textContent = show ? "Show less ▴" : "Go deeper ▾";
+      });
+    }
+    // Position below the button, clamped to the viewport.
+    var r = btn.getBoundingClientRect();
+    var x = Math.min(r.left, window.innerWidth - pop.offsetWidth - 10);
+    var y = r.bottom + 6;
+    if (y + pop.offsetHeight > window.innerHeight - 8) { y = Math.max(8, r.top - pop.offsetHeight - 6); }
+    pop.style.left = Math.max(8, x) + "px";
+    pop.style.top = y + "px";
+  }
+
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest && e.target.closest(".explain");
+    if (btn) { e.preventDefault(); if (current === btn) { close(); } else { open(btn); } return; }
+    if (!pop.hidden && !pop.contains(e.target)) { close(); }
+  });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") { close(); } });
+})();

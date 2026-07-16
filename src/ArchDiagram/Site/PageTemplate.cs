@@ -33,15 +33,43 @@ public static class PageTemplate
         ("hotspots.html", "Hotspots", "◉"),
     ];
 
+    /// <summary>Sidebar navigation grouped into sections (order = display order). Keeps the
+    /// flat <see cref="Nav"/> for callers/tests that just need the hrefs.</summary>
+    public static readonly (string Section, (string Href, string Title, string Icon)[] Items)[] NavSections =
+    [
+        ("Start", [("index.html", "Overview", "◈"), ("guide.html", "Guide", "❓")]),
+        ("Structure", [("structure.html", "Structure", "🗀"), ("dependencies.html", "Dependencies", "⇄"),
+                       ("modules.html", "Modules", "⬡"), ("layers.html", "Layering", "≡"), ("graph.html", "Graph (3D)", "🕸")]),
+        ("Health", [("scorecard.html", "Scorecard", "✔"), ("metrics.html", "Metrics", "📐"), ("hotspots.html", "Hotspots", "◉")]),
+        ("Code", [("types.html", "Types & Members", "❖"), ("api.html", "API Surface", "⧉"), ("calls.html", "Call Graph", "☎")]),
+        ("Supply chain", [("packages.html", "Packages", "📦"), ("config.html", "Config & Secrets", "🔑")]),
+    ];
+
     /// <param name="relRoot">"" for root pages, "../" for pages under files/.</param>
     public static string Render(string title, string siteName, string activeHref, string relRoot, string breadcrumbsHtml, string bodyHtml,
         IReadOnlyList<(string Href, string Title, string Icon)>? navItems = null, SourceLink? sourceLink = null)
     {
         var nav = new StringBuilder();
-        foreach (var (href, navTitle, icon) in navItems ?? Nav)
+        if (navItems is null)
         {
-            var active = href == activeHref ? " class=\"active\"" : "";
-            nav.Append($"<a href=\"{relRoot}{href}\"{active}><span class=\"nav-icon\">{icon}</span>{Html.Encode(navTitle)}</a>\n");
+            // Grouped sidebar with section labels.
+            foreach (var (section, items) in NavSections)
+            {
+                nav.Append($"<div class=\"nav-section\">{Html.Encode(section)}</div>\n");
+                foreach (var (href, navTitle, icon) in items)
+                {
+                    var active = href == activeHref ? " class=\"active\"" : "";
+                    nav.Append($"<a href=\"{relRoot}{href}\"{active}><span class=\"nav-icon\">{icon}</span>{Html.Encode(navTitle)}</a>\n");
+                }
+            }
+        }
+        else
+        {
+            foreach (var (href, navTitle, icon) in navItems)
+            {
+                var active = href == activeHref ? " class=\"active\"" : "";
+                nav.Append($"<a href=\"{relRoot}{href}\"{active}><span class=\"nav-icon\">{icon}</span>{Html.Encode(navTitle)}</a>\n");
+            }
         }
 
         // Source-link config for the client-side linker (sourcelink.js). null =
@@ -90,6 +118,8 @@ public static class PageTemplate
   </main>
 </div>
 <div class="hover-tip" id="hover-tip" hidden></div>
+<div class="explain-pop" id="explain-pop" hidden role="dialog" aria-label="Explanation"></div>
+<script type="application/json" id="arch-glossary">{{Glossary.Json()}}</script>
 <div class="palette-overlay" id="palette" hidden data-rel-root="{{relRoot}}">
   <div class="palette">
     <input type="text" id="palette-input" placeholder="Search files, types, methods…" autocomplete="off" spellcheck="false">

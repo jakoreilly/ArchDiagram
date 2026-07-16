@@ -102,6 +102,8 @@
   var hideOrphansEl = document.getElementById("g3d-hide-orphans");
   var freezeEl = document.getElementById("g3d-freeze");
   var typeLegendEl = document.getElementById("g3d-type-legend");
+  var pathEl = document.getElementById("g3d-path");
+  var pathPlayEl = document.getElementById("g3d-path-play");
 
   var colorMode = "coupling";     // "coupling" (default) | "folder" | "type"
   var degreeMode = "off";          // "off" | "ge" | "le"
@@ -172,6 +174,13 @@
   var ACCENT = function () { return cssVar("--accent") || "#2f6fab"; };
 
   var Graph = null, DATA = { nodes: [], links: [] }, ADJ = {}, focusId = null;
+  var PATH = null, playing = false;   // critical-path highlight state
+  function pathLinkHit(l) {
+    if (!PATH) { return false; }
+    var s = typeof l.source === "object" ? l.source.id : l.source;
+    var t = typeof l.target === "object" ? l.target.id : l.target;
+    return PATH.edges[s + ">" + t] === true;
+  }
   var lastGraphSig = null;          // visible node-set signature; skips spurious reheats
 
   function buildAdjacency(links) {
@@ -216,6 +225,10 @@
   // Colour precedence: focus dimming (when a node is focused) wins over the degree
   // highlight, which in turn overrides the plain base colour. Matches the legend.
   function nodeColor(n) {
+    if (PATH) {
+      if (!PATH.ids[n.id]) { return MUTED(); }
+      return n.id === PATH.target ? (cssVar("--danger") || "#c0392b") : ACCENT();
+    }
     if (focusId) {
       if (n.id === focusId) { return ACCENT(); }
       return n.__ego ? baseColor(n) : MUTED();
@@ -232,6 +245,7 @@
     return base;
   }
   function linkColor(l) {
+    if (PATH) { return pathLinkHit(l) ? (cssVar("--danger") || "#c0392b") : MUTED(); }
     if (filterText) {
       var s = typeof l.source === "object" ? l.source : null;
       var t = typeof l.target === "object" ? l.target : null;
@@ -239,10 +253,13 @@
     }
     return l.kind === "call" ? (cssVar("--warn") || "#b7791f") : ACCENT();
   }
+  function linkWidth(l) { return PATH && pathLinkHit(l) ? 3 : 1; }
+  function linkParticles(l) { return playing && pathLinkHit(l) ? 4 : 0; }
 
   function applyChannels() {
     if (!Graph) { return; }
-    Graph.nodeColor(nodeColor).nodeVal(nodeVal).linkColor(linkColor);
+    Graph.nodeColor(nodeColor).nodeVal(nodeVal).linkColor(linkColor)
+      .linkWidth(linkWidth).linkDirectionalParticles(linkParticles).linkDirectionalParticleWidth(2.5);
   }
 
   function setFocus(id) {
@@ -267,12 +284,84 @@
   }
 
   function clearFocus() {
+    if (PATH) {
+      PATH = null; playing = false;
+      if (pathEl) { pathEl.value = ""; }
+      if (pathPlayEl) { pathPlayEl.disabled = true; pathPlayEl.textContent = "▶ Play"; }
+    }
     var wasIsolated = isolateActive();
     focusId = null;
     DATA.nodes.forEach(function (n) { n.__ego = false; });
     // Restore the full node set if isolate had hidden non-ego nodes; else just recolour.
     if (wasIsolated) { applyGraphData(); } else { applyChannels(); }
     if (panel) { panel.hidden = true; }
+  }
+
+  // ---- Critical paths: trace + optional pulse animation ----
+  function populatePathList() {
+    if (!pathEl) { return; }
+    var paths = DATA.criticalPaths || [];
+    if (!paths.length) { pathEl.parentNode && (pathEl.closest(".lf-select").style.display = "none"); return; }
+    var html = '<option value="">— none —</option>';
+    for (var i = 0; i < paths.length; i++) {
+      html += '<option value="' + i + '">' + esc(paths[i].label) + '</option>';
+    }
+    pathEl.innerHTML = html;
+  }
+
+  function clearPath() { clearFocus(); }
+
+  function selectPath(idx) {
+    var paths = DATA.criticalPaths || [];
+    var p = paths[idx];
+    if (!p) { clearPath(); return; }
+    var byId = {}; DATA.nodes.forEach(function (n) { byId[n.id] = n; });
+    PATH = { target: p.target, ids: {}, edges: {}, order: p.nodes };
+    for (var i = 0; i < p.nodes.length; i++) {
+      PATH.ids[p.nodes[i]] = true;
+      if (i > 0) { PATH.edges[p.nodes[i - 1] + ">" + p.nodes[i]] = true; }
+    }
+    playing = false;
+    if (pathPlayEl) { pathPlayEl.disabled = false; pathPlayEl.textContent = "▶ Play"; }
+    // Reuse focus for the camera fly-in + ego layout, then our PATH styling overrides colour.
+    focusId = p.target;
+    DATA.nodes.forEach(function (n) { n.__ego = false; });
+    applyChannels();
+    var tgt = byId[p.target];
+    if (tgt && typeof tgt.x === "number") {
+      var d = 140, dist0 = Math.hypot(tgt.x, tgt.y, tgt.z || 0), ratio = dist0 > 1 ? 1 + d / dist0 : 1;
+      Graph.cameraPosition({ x: tgt.x * ratio, y: tgt.y * ratio, z: (tgt.z || 0) * ratio + d },
+        { x: tgt.x, y: tgt.y, z: tgt.z || 0 }, 800);
+    }
+    showPathPanel(p, byId);
+  }
+
+  // Side panel: the chain, hop-by-hop, with cumulative coupling transferred along the way.
+  function showPathPanel(p, byId) {
+    if (!panel) { return; }
+    var cum = 0;
+    var rows = p.nodes.map(function (id, i) {
+      var n = byId[id] || { label: id, fanIn: 0, fanOut: 0 };
+      cum += (n.fanIn || 0) + (n.fanOut || 0);
+      var arrow = i === 0 ? '<span class="badge">entry</span> ' : '<span class="crumb-sep">→</span> ';
+      return '<li>' + arrow + esc(n.label) +
+        ' <span class="filter-count">coupling ' + ((n.fanIn || 0) + (n.fanOut || 0)) +
+        ' · Σ ' + cum + '</span></li>';
+    }).join("");
+    panel.innerHTML =
+      '<h3 style="margin-top:0">Critical path</h3>' +
+      '<p class="note">Entry point → <strong>' + esc(p.label) + '</strong> · ' + (p.nodes.length - 1) + ' hop(s) · ' +
+      'total coupling along the path <strong>' + cum + '</strong>.</p>' +
+      '<ul class="member-list" style="font-family:inherit">' + rows + '</ul>' +
+      '<p class="note">Press <strong>Play</strong> to pulse the flow. Pick “— none —” to exit.</p>';
+    panel.hidden = false;
+  }
+
+  function togglePlay() {
+    if (!PATH) { return; }
+    playing = !playing;
+    if (pathPlayEl) { pathPlayEl.textContent = playing ? "⏸ Pause" : "▶ Play"; }
+    applyChannels();
   }
 
   function sourceControl(node) {
@@ -408,7 +497,7 @@
   }
 
   function init(data) {
-    DATA = { nodes: data.nodes || [], links: data.edges || [] };
+    DATA = { nodes: data.nodes || [], links: data.edges || [], criticalPaths: data.criticalPaths || [] };
     buildAdjacency(DATA.links);
     maxDegree = DATA.nodes.reduce(function (m, n) { return Math.max(m, degreeOf(n)); }, 1);
     restorePrefs();
@@ -450,6 +539,14 @@
     }
 
     populateSearchList();
+    populatePathList();
+    if (pathEl) {
+      pathEl.addEventListener("change", function () {
+        var v = pathEl.value;
+        if (v === "") { clearPath(); } else { selectPath(+v); }
+      });
+    }
+    if (pathPlayEl) { pathPlayEl.addEventListener("click", togglePlay); }
     applyChannels();
     lastGraphSig = null; // force the first data push
     applyGraphData();
