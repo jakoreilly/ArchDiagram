@@ -33,6 +33,9 @@ public sealed record FileNode
     public int Loc { get; init; }
     /// <summary>True when the file looks like automated-test code (hidden by default in the viewer). Additive.</summary>
     public bool IsTest { get; init; }
+    /// <summary>True when the file looks like a vendored/third-party/minified asset (excluded from
+    /// the size-based treemap so first-party code stands out). Additive.</summary>
+    public bool IsVendored { get; init; }
     public string Purpose { get; set; } = "";
     public string PurposeSource { get; set; } = "";
     public List<string> Imports { get; init; } = [];

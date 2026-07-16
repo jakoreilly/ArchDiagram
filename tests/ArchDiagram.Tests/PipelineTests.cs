@@ -81,6 +81,26 @@ public class PipelineTests
     }
 
     [Fact]
+    public void Generated_site_output_is_not_scanned_as_source()
+    {
+        var model = Build();
+        // SampleRepo/site-fake/ is a generated ArchDiagram site (model.json + assets/site.css).
+        // It must be skipped, or its vendored assets (mermaid.min.js) and pages double-count.
+        Assert.DoesNotContain(model.Files, f => f.RelPath.StartsWith("site-fake/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Connection_strings_in_comments_are_ignored()
+    {
+        var model = Build();
+        // Lib/MathHelpers.cs has a connection-string example inside a // comment. It documents
+        // the format; it is not a real database and must never be detected.
+        Assert.DoesNotContain(model.Databases, d =>
+            d.Server.Equals("commentbox", StringComparison.OrdinalIgnoreCase)
+            || d.Catalog.Equals("commentcatalog", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void Resolves_csharp_ts_python_and_powershell_imports()
     {
         var model = Build();

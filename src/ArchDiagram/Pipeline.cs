@@ -94,6 +94,7 @@ public static class Pipeline
                 SizeBytes = entry.SizeBytes,
                 Loc = loc,
                 IsTest = TestDetection.IsTest(entry.RelPath),
+                IsVendored = VendoredDetection.IsVendored(entry.RelPath),
                 Imports = facts.Imports,
                 Types = facts.Types,
                 Todos = analyzable && content.Length > 0 ? TodoScanner.Scan(content, facts.Language) : [],

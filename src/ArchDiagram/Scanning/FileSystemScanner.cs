@@ -47,7 +47,16 @@ public static class FileSystemScanner
                 // Skip reparse points (symlinks/junctions) outright — they are the usual
                 // source of scan cycles and duplicated subtrees.
                 if (IsReparsePoint(entry)) { continue; }
-                if (!skips.Contains(Path.GetFileName(entry))) { Walk(entry, root, skips, results, diagnostics, visited); }
+                if (skips.Contains(Path.GetFileName(entry))) { continue; }
+                // Skip ArchDiagram's own generated output (any --out name): re-scanning it
+                // double-counts the vendored assets (mermaid.min.js, 3d-force-graph.min.js)
+                // and the per-file HTML pages as if they were project source.
+                if (IsGeneratedSite(entry))
+                {
+                    diagnostics?.Add($"Skipped generated ArchDiagram site '{Path.GetRelativePath(root, entry).Replace('\\', '/')}'");
+                    continue;
+                }
+                Walk(entry, root, skips, results, diagnostics, visited);
                 continue;
             }
 
@@ -58,6 +67,19 @@ public static class FileSystemScanner
             var rel = Path.GetRelativePath(root, entry).Replace('\\', '/');
             results.Add(new FileEntry(entry, rel, Path.GetExtension(entry).ToLowerInvariant(), size));
         }
+    }
+
+    /// <summary>A directory is a generated ArchDiagram site if it holds the model plus the
+    /// site stylesheet — the two files every generated site has at its root. Name-independent
+    /// so custom <c>--out</c> folders are recognised too.</summary>
+    private static bool IsGeneratedSite(string dir)
+    {
+        try
+        {
+            return File.Exists(Path.Combine(dir, "model.json"))
+                && File.Exists(Path.Combine(dir, "assets", "site.css"));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { return false; }
     }
 
     private static bool IsReparsePoint(string path)

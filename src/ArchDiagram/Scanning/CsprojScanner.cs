@@ -85,12 +85,14 @@ public static class CsprojScanner
                 var lines = text.Split('\n');
                 foreach (var hit in SourceTextScanner.FindConnectionStringLiterals(text))
                 {
-                    // Skip Web.config XDT transform directives: their connection strings are
-                    // build-time placeholders (e.g. Data Source=ReleaseSQLServer), not real
-                    // databases. The marker is an xdt: attribute on the same line.
                     var ln = hit.LineNumber - 1;
-                    if (ln >= 0 && ln < lines.Length
-                        && lines[ln].Contains("xdt:", StringComparison.OrdinalIgnoreCase)) { continue; }
+                    var line = ln >= 0 && ln < lines.Length ? lines[ln] : "";
+                    // Skip Web.config XDT transform directives: their connection strings are
+                    // build-time placeholders (e.g. a Data Source token), not real databases.
+                    if (line.Contains("xdt:", StringComparison.OrdinalIgnoreCase)) { continue; }
+                    // Skip comment lines: a connection-string-shaped example inside a code or
+                    // XML comment documents the format, it is not a real database.
+                    if (IsCommentLine(line)) { continue; }
                     dbUses.Add(BuildDbUse(hit, $"{cs.RelPath}:{hit.LineNumber}"));
                 }
             }
@@ -113,8 +115,28 @@ public static class CsprojScanner
     /// where real services actually keep them — appsettings*.json (modern builds) and
     /// *.config (web.config/app.config, older builds). All are scanned as text by the same
     /// literal detector, so a "Server=…;Database=…" string is found wherever it lives.</summary>
+    /// <summary>True for lines that are code/XML comments — where connection-string-shaped
+    /// text is documentation, not a live database. Covers C#/JS (<c>//</c>, <c>/*</c>,
+    /// <c>*</c>), XML/config (<c>&lt;!--</c>), and script (<c>#</c>) comment leaders.</summary>
+    private static bool IsCommentLine(string line)
+    {
+        var t = line.TrimStart();
+        return t.StartsWith("//", StringComparison.Ordinal)
+            || t.StartsWith("*", StringComparison.Ordinal)
+            || t.StartsWith("/*", StringComparison.Ordinal)
+            || t.StartsWith("<!--", StringComparison.Ordinal)
+            || t.StartsWith("#", StringComparison.Ordinal);
+    }
+
     private static bool IsConnStringSource(FileEntry f)
     {
+        // Test code and fixtures are where fake/example connection strings live
+        // ("Server=db1;Database=orders", sample appsettings, transform templates) — never a
+        // real database the project connects to. Exclude them so scanning a repo against
+        // itself doesn't invent databases from its own tests. Matches the 🧪 test filter used
+        // elsewhere (see ModuleGrouper).
+        if (Analysis.TestDetection.IsTest(f.RelPath)) { return false; }
+
         if (f.Extension == ".cs") { return true; }
         var name = Path.GetFileName(f.RelPath);
         if (f.Extension == ".json")

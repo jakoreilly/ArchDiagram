@@ -66,6 +66,19 @@ public class TreemapRendererTests
     }
 
     [Fact]
+    public void Excludes_vendored_files()
+    {
+        var files = new List<FileNode>
+        {
+            new() { RelPath = "src/A.cs", Slug = "a", Language = "C#", Loc = 100 },
+            new() { RelPath = "assets/lib/mermaid.min.js", Slug = "mm", Language = "TypeScript/JavaScript", Loc = 83419, IsVendored = true },
+        };
+        var svg = TreemapRenderer.Render(files);
+        Assert.Contains("files/a.html", svg);
+        Assert.DoesNotContain("files/mm.html", svg);
+    }
+
+    [Fact]
     public void Empty_when_no_loc()
     {
         Assert.Equal("", TreemapRenderer.Render([new FileNode { RelPath = "x.md", Slug = "x", Language = "Markdown", Loc = 0 }]));

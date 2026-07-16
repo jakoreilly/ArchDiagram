@@ -1,5 +1,8 @@
 namespace Sample.Lib;
 
+// Example connection string in a comment (must NOT be detected as a real database):
+// "Server=commentbox;Database=commentcatalog;User Id=x;Password=y;"
+
 /// <summary>Tiny math helpers for the fixture.</summary>
 public static class MathHelpers
 {

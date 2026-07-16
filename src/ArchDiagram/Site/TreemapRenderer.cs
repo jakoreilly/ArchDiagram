@@ -30,7 +30,7 @@ public static class TreemapRenderer
     public static string Render(IReadOnlyList<FileNode> files)
     {
         var items = files
-            .Where(f => f.Loc > 0 && !f.IsTest)
+            .Where(f => f.Loc > 0 && !f.IsTest && !f.IsVendored)
             .OrderBy(f => TopFolder(f), StringComparer.OrdinalIgnoreCase)
             .ThenByDescending(f => f.Loc)
             .ThenBy(f => f.RelPath, StringComparer.OrdinalIgnoreCase)

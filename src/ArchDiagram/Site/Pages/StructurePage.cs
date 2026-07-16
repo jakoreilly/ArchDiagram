@@ -45,8 +45,14 @@ Hover a file for its purpose summary.</p>
             sb.Append("<p class=\"lede\">Every file as a rectangle — bigger = more lines, colour = language, grouped by "
                     + "top-level folder. Hover for details, click to open a file. The full tree is below.</p>");
             sb.Append($"<div class=\"treemap\">{treemap}</div>");
+            var vendored = model.Files.Count(f => f.IsVendored && f.Loc > 0);
+            var vendoredNote = vendored > 0
+                ? $" {vendored:N0} vendored/minified file{(vendored == 1 ? "" : "s")} (e.g. bundled libraries) "
+                  + "are also excluded so first-party code stands out."
+                : "";
             sb.Append("<p class=\"note\">Files under a few lines may be too small to label; use the tree or search to find them. "
-                    + "Test files are excluded from this map — use the 🧪 Tests toggle (bottom of the sidebar) to show them in the tree.</p>");
+                    + "Test files are excluded from this map — use the 🧪 Tests toggle (bottom of the sidebar) to show them in the tree."
+                    + vendoredNote + "</p>");
         }
 
         if (GraphPage.HasData(model)) { sb.Append(PageTemplate.ExploreIn3DNote()); }
