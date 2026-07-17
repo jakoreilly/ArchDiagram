@@ -45,7 +45,7 @@ public static class MetricsPage
         // Rank the "worst distance" over real problems only — a concrete leaf with no
         // dependents shows D≈1 purely as a formula artifact, so exclude BenignLeaf.
         var ranked = r.Modules
-            .Where(m => ArchitectureMetrics.Classify(m.Instability, m.Abstractness, m.Ca) != ArchitectureMetrics.Zone.BenignLeaf)
+            .Where(m => ArchitectureMetrics.Classify(m.Instability, m.Abstractness, m.Ca, m.IsPureData) != ArchitectureMetrics.Zone.BenignLeaf)
             .ToList();
         var worst = (ranked.Count > 0 ? ranked : r.Modules)[0]; // Modules already ordered by D desc
         sb.Append("<div class=\"tiles\">");
@@ -80,7 +80,7 @@ public static class MetricsPage
                 + $"<th>Distance {Glossary.Info("distance")}</th><th>Verdict</th></tr></thead><tbody>");
         foreach (var m in r.Modules)
         {
-            var (label, cls) = ZoneBadge(ArchitectureMetrics.Classify(m.Instability, m.Abstractness, m.Ca));
+            var (label, cls) = ZoneBadge(ArchitectureMetrics.Classify(m.Instability, m.Abstractness, m.Ca, m.IsPureData));
             sb.Append($"<tr><td>{Html.Encode(Strip(m.Key, prefix))}</td><td>{m.Files:N0}</td>"
                     + $"<td>{m.Ca:N0}</td><td>{m.Ce:N0}</td>"
                     + $"<td>{m.Instability.ToString("F2", CultureInfo.InvariantCulture)}</td>"
@@ -226,7 +226,7 @@ public static class MetricsPage
         var cy = MapY(m.Abstractness);
         var radius = 4 + (6.0 * m.Files / maxFiles);
         var fill = m.Distance <= 0.3 ? "var(--ok)" : m.Distance <= 0.6 ? "var(--accent)" : "var(--danger)";
-        var (verdict, _) = ZoneBadge(ArchitectureMetrics.Classify(m.Instability, m.Abstractness, m.Ca));
+        var (verdict, _) = ZoneBadge(ArchitectureMetrics.Classify(m.Instability, m.Abstractness, m.Ca, m.IsPureData));
         var title = $"{Strip(m.Key, prefix)} · I={m.Instability.ToString("F2", CultureInfo.InvariantCulture)}"
                   + $" A={m.Abstractness.ToString("F2", CultureInfo.InvariantCulture)}"
                   + $" D={m.Distance.ToString("F2", CultureInfo.InvariantCulture)} · {verdict}";

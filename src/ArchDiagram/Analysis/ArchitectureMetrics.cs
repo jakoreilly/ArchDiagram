@@ -17,17 +17,29 @@ public static class ArchitectureMetrics
     private const int MaxClosureModules = 400;
 
     public sealed record ModuleMetric(string Key, int Files, int Loc, int Ca, int Ce,
-        double Instability, double Abstractness, double Distance);
+        double Instability, double Abstractness, double Distance, bool IsPureData);
 
     public enum Zone { Healthy, ZoneOfPain, ZoneOfUselessness, BenignLeaf, Watch }
 
+    /// <summary>Below this Ca, "heavily depended-on" isn't a fair read — a couple of call
+    /// sites is not the same as being load-bearing across the codebase.</summary>
+    private const int MinPainfulCa = 3;
+
     /// <summary>Plain-language zone from Instability/Abstractness. Pure. Ca disambiguates a
-    /// rigid painful module (has dependents) from a harmless concrete leaf (none).</summary>
-    public static Zone Classify(double instability, double abstractness, int ca)
+    /// rigid painful module (has real dependents) from a harmless concrete leaf (none/few).
+    /// <paramref name="isPureData"/> — a module whose types are exclusively data records/DTOs
+    /// can never score above 0 abstractness by construction (see ModuleGrouper's Abstractness
+    /// formula), so flagging it "zone of pain" and recommending interfaces is category-wrong
+    /// advice for data; it's classified Watch (informational) instead.</summary>
+    public static Zone Classify(double instability, double abstractness, int ca, bool isPureData = false)
     {
         var d = Math.Abs(abstractness + instability - 1.0);
         if (d <= 0.3) { return Zone.Healthy; }
-        if (instability <= 0.3 && abstractness <= 0.3) { return ca > 0 ? Zone.ZoneOfPain : Zone.BenignLeaf; }
+        if (instability <= 0.3 && abstractness <= 0.3)
+        {
+            if (ca < MinPainfulCa) { return Zone.BenignLeaf; }
+            return isPureData ? Zone.Watch : Zone.ZoneOfPain;
+        }
         if (instability >= 0.7 && abstractness >= 0.7) { return Zone.ZoneOfUselessness; }
         return Zone.Watch;
     }
@@ -59,7 +71,11 @@ public static class ArchitectureMetrics
             var instability = caN + ceN == 0 ? 0.0 : (double)ceN / (caN + ceN);
             var abstractness = m.TotalTypes == 0 ? 0.0 : (double)m.AbstractTypes / m.TotalTypes;
             var distance = Math.Abs(abstractness + instability - 1.0);
-            return new ModuleMetric(m.Key, m.FileCount, m.Loc, caN, ceN, instability, abstractness, distance);
+            // A module built entirely of data records/DTOs (no interfaces, no abstract types)
+            // can never score above 0 abstractness by construction — see the doc comment on
+            // Classify for why that shouldn't read as "zone of pain".
+            var isPureData = m.TotalTypes > 0 && m.AbstractTypes == 0;
+            return new ModuleMetric(m.Key, m.FileCount, m.Loc, caN, ceN, instability, abstractness, distance, isPureData);
         }).ToList();
 
         var skip = g.Modules.Count > MaxClosureModules;

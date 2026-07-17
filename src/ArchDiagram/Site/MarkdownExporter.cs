@@ -1,6 +1,5 @@
 using System.Text;
 using ArchDiagram.Graph;
-using ArchDiagram.Site.Pages;
 
 namespace ArchDiagram.Site;
 
@@ -28,6 +27,21 @@ public static class MarkdownExporter
         sb.AppendLine($"> Analysis is heuristic (no compilation); see the HTML site for interactive diagrams.");
         sb.AppendLine();
 
+        AppendSummary(sb, model);
+        AppendAtAGlance(sb, model, totalLoc);
+        AppendScorecard(sb, ctx.Scorecard);
+        if (model.LanguageLoc.Count > 0) { AppendLanguages(sb, model, totalLoc); }
+        AppendArchitectureDiagram(sb, model, maxNodes);
+        if (model.Projects.Count > 0) { AppendProjects(sb, model); }
+        AppendKeyFiles(sb, ctx);
+        if (ctx.Metrics.Modules.Count >= 2) { AppendArchitectureMetrics(sb, ctx.Metrics); }
+        AppendOpenMarkers(sb, model);
+
+        File.WriteAllText(path, sb.ToString(), new UTF8Encoding(false));
+    }
+
+    private static void AppendSummary(StringBuilder sb, ProjectModel model)
+    {
         sb.AppendLine("## Summary");
         sb.AppendLine();
         if (model.Description.Length > 0)
@@ -37,7 +51,10 @@ public static class MarkdownExporter
         }
         sb.AppendLine(Analysis.NarrativeBuilder.ProjectSummary(model));
         sb.AppendLine();
+    }
 
+    private static void AppendAtAGlance(StringBuilder sb, ProjectModel model, int totalLoc)
+    {
         sb.AppendLine("## At a glance");
         sb.AppendLine();
         sb.AppendLine("| Metric | Value |");
@@ -49,97 +66,98 @@ public static class MarkdownExporter
         sb.AppendLine($"| File-to-file links | {model.FileDependencies.Count(d => d.ToSlug.Length > 0):N0} |");
         sb.AppendLine($"| Databases | {model.Databases.Count:N0} |");
         sb.AppendLine();
+    }
 
-        AppendScorecard(sb, ctx.Scorecard);
-
-        if (model.LanguageLoc.Count > 0)
+    private static void AppendLanguages(StringBuilder sb, ProjectModel model, int totalLoc)
+    {
+        sb.AppendLine("## Languages");
+        sb.AppendLine();
+        sb.AppendLine("| Language | LOC | Share |");
+        sb.AppendLine("|---|---|---|");
+        foreach (var (lang, loc) in model.LanguageLoc.OrderByDescending(kv => kv.Value))
         {
-            sb.AppendLine("## Languages");
-            sb.AppendLine();
-            sb.AppendLine("| Language | LOC | Share |");
-            sb.AppendLine("|---|---|---|");
-            foreach (var (lang, loc) in model.LanguageLoc.OrderByDescending(kv => kv.Value))
-            {
-                sb.AppendLine($"| {lang} | {loc:N0} | {(totalLoc > 0 ? 100.0 * loc / totalLoc : 0):F1}% |");
-            }
-            sb.AppendLine();
+            sb.AppendLine($"| {lang} | {loc:N0} | {(totalLoc > 0 ? 100.0 * loc / totalLoc : 0):F1}% |");
         }
+        sb.AppendLine();
+    }
 
+    private static void AppendArchitectureDiagram(StringBuilder sb, ProjectModel model, int maxNodes)
+    {
         sb.AppendLine("## Architecture diagram");
         sb.AppendLine();
         var diagram = model.Projects.Count > 0
-            ? IndexPage.BuildProjectDiagram(model, maxNodes)
-            : DependenciesPage.BuildFolderOverview(model, maxNodes);
+            ? ArchitectureDiagrams.BuildProjectDiagram(model, maxNodes)
+            : ArchitectureDiagrams.BuildFolderOverview(model, maxNodes);
         sb.AppendLine("```mermaid");
         sb.Append(diagram.Mermaid);
         sb.AppendLine("```");
         sb.AppendLine();
+    }
 
-        if (model.Projects.Count > 0)
+    private static void AppendProjects(StringBuilder sb, ProjectModel model)
+    {
+        sb.AppendLine("## Projects");
+        sb.AppendLine();
+        sb.AppendLine("| Project | Framework | References | Packages |");
+        sb.AppendLine("|---|---|---|---|");
+        foreach (var p in model.Projects.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase))
         {
-            sb.AppendLine("## Projects");
-            sb.AppendLine();
-            sb.AppendLine("| Project | Framework | References | Packages |");
-            sb.AppendLine("|---|---|---|---|");
-            foreach (var p in model.Projects.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase))
-            {
-                var refs = p.ProjectReferenceNames.Count > 0 ? string.Join(", ", p.ProjectReferenceNames) : "—";
-                var pkgs = p.PackageReferences.Count > 0
-                    ? string.Join(", ", p.PackageReferences.Take(8)) + (p.PackageReferences.Count > 8 ? ", …" : "")
-                    : "—";
-                sb.AppendLine($"| {p.Name} | {(p.TargetFramework.Length > 0 ? p.TargetFramework : "?")} | {refs} | {pkgs} |");
-            }
-            sb.AppendLine();
+            var refs = p.ProjectReferenceNames.Count > 0 ? string.Join(", ", p.ProjectReferenceNames) : "—";
+            var pkgs = p.PackageReferences.Count > 0
+                ? string.Join(", ", p.PackageReferences.Take(8)) + (p.PackageReferences.Count > 8 ? ", …" : "")
+                : "—";
+            sb.AppendLine($"| {p.Name} | {(p.TargetFramework.Length > 0 ? p.TargetFramework : "?")} | {refs} | {pkgs} |");
         }
+        sb.AppendLine();
+    }
 
-        // Key files: ranked by overall importance (fan-in, calls, entry points, size).
-        // ctx.Ranked is cached at take=20; slicing to 10 here reproduces Rank(model, 10)
-        // exactly since ordering doesn't depend on `take`.
+    // Key files: ranked by overall importance (fan-in, calls, entry points, size).
+    // ctx.Ranked is cached at take=20; slicing to 10 here reproduces Rank(model, 10)
+    // exactly since ordering doesn't depend on `take`.
+    private static void AppendKeyFiles(StringBuilder sb, SiteContext ctx)
+    {
         var key = ctx.Ranked.Take(10).ToList();
-        if (key.Count > 0)
-        {
-            sb.AppendLine("## Key files (start here)");
-            sb.AppendLine();
-            sb.AppendLine("| # | File | Why it matters | Imported by | Purpose |");
-            sb.AppendLine("|---|---|---|---|---|");
-            var rank = 0;
-            foreach (var s in key)
-            {
-                rank++;
-                sb.AppendLine($"| {rank} | `{s.File.RelPath}` | {MdEscape(s.Reason)} | {s.FanIn} files | {MdEscape(s.File.Purpose)} |");
-            }
-            sb.AppendLine();
-        }
+        if (key.Count == 0) { return; }
 
-        // Architecture metrics (module level, heuristic).
-        var metrics = ctx.Metrics;
-        if (metrics.Modules.Count >= 2)
+        sb.AppendLine("## Key files (start here)");
+        sb.AppendLine();
+        sb.AppendLine("| # | File | Why it matters | Imported by | Purpose |");
+        sb.AppendLine("|---|---|---|---|---|");
+        var rank = 0;
+        foreach (var s in key)
         {
-            sb.AppendLine("## Architecture metrics");
-            sb.AppendLine();
-            sb.AppendLine($"Propagation cost: **{metrics.PropagationCost:P0}** · dependency cycles: **{metrics.Cycles.Count}** (module level, heuristic).");
-            sb.AppendLine();
-            sb.AppendLine("Highest distance from the main sequence (D = |A + I − 1|):");
-            sb.AppendLine();
-            sb.AppendLine("| Module | Instability | Abstractness | Distance |");
-            sb.AppendLine("|---|---|---|---|");
-            foreach (var m in metrics.Modules.Take(5))
-            {
-                sb.AppendLine($"| `{MdEscape(m.Key)}` | {m.Instability:F2} | {m.Abstractness:F2} | {m.Distance:F2} |");
-            }
-            sb.AppendLine();
+            rank++;
+            sb.AppendLine($"| {rank} | `{s.File.RelPath}` | {MdEscape(s.Reason)} | {s.FanIn} files | {MdEscape(s.File.Purpose)} |");
         }
+        sb.AppendLine();
+    }
 
+    private static void AppendArchitectureMetrics(StringBuilder sb, Analysis.ArchitectureMetrics.Result metrics)
+    {
+        sb.AppendLine("## Architecture metrics");
+        sb.AppendLine();
+        sb.AppendLine($"Propagation cost: **{metrics.PropagationCost:P0}** · dependency cycles: **{metrics.Cycles.Count}** (module level, heuristic).");
+        sb.AppendLine();
+        sb.AppendLine("Highest distance from the main sequence (D = |A + I − 1|):");
+        sb.AppendLine();
+        sb.AppendLine("| Module | Instability | Abstractness | Distance |");
+        sb.AppendLine("|---|---|---|---|");
+        foreach (var m in metrics.Modules.Take(5))
+        {
+            sb.AppendLine($"| `{MdEscape(m.Key)}` | {m.Instability:F2} | {m.Abstractness:F2} | {m.Distance:F2} |");
+        }
+        sb.AppendLine();
+    }
+
+    private static void AppendOpenMarkers(StringBuilder sb, ProjectModel model)
+    {
         var todoCount = model.Files.Sum(f => f.Todos.Count);
-        if (todoCount > 0)
-        {
-            sb.AppendLine($"## Open markers");
-            sb.AppendLine();
-            sb.AppendLine($"{todoCount} TODO/FIXME/HACK markers found — see `hotspots.html` in the generated site for the full list.");
-            sb.AppendLine();
-        }
+        if (todoCount == 0) { return; }
 
-        File.WriteAllText(path, sb.ToString(), new UTF8Encoding(false));
+        sb.AppendLine($"## Open markers");
+        sb.AppendLine();
+        sb.AppendLine($"{todoCount} TODO/FIXME/HACK markers found — see `hotspots.html` in the generated site for the full list.");
+        sb.AppendLine();
     }
 
     private static void AppendScorecard(StringBuilder sb, Analysis.ScorecardBuilder.Card card)

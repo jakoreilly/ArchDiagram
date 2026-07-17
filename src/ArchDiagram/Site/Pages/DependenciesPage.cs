@@ -52,7 +52,7 @@ connections to a specific package (e.g. <code>system.data</code>).</p>
 """);
         if (GraphPage.HasData(model)) { sb.Append(PageTemplate.ExploreIn3DNote()); }
 
-        sb.Append(PageTemplate.DiagramBlock("dep-overview", BuildFolderOverview(model, maxNodes), model.RootName + "-dependencies-overview", hidden: false, group: "deps"));
+        sb.Append(PageTemplate.DiagramBlock("dep-overview", ArchitectureDiagrams.BuildFolderOverview(model, maxNodes), model.RootName + "-dependencies-overview", hidden: false, group: "deps"));
         foreach (var f in folders)
         {
             var id = "dep-" + Slugify(f);
@@ -74,36 +74,6 @@ connections to a specific package (e.g. <code>system.data</code>).</p>
         var sb = new StringBuilder();
         foreach (var ch in s) { sb.Append(char.IsLetterOrDigit(ch) ? char.ToLowerInvariant(ch) : '_'); }
         return sb.ToString();
-    }
-
-    /// <summary>Top-level folders as nodes; edges aggregate the file-level imports crossing them.</summary>
-    public static Diagram BuildFolderOverview(ProjectModel model, int maxNodes)
-    {
-        var codeFiles = model.Files.Where(f => !f.IsTest).ToList();
-        var folderOf = codeFiles.ToDictionary(f => f.Slug, TopFolder, StringComparer.Ordinal);
-        var fileCount = codeFiles.GroupBy(TopFolder, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
-
-        var counts = new Dictionary<(string From, string To), int>();
-        foreach (var e in model.FileDependencies.Where(e => e.ToSlug.Length > 0))
-        {
-            // Skip edges touching an excluded (test) file.
-            if (!folderOf.TryGetValue(e.FromSlug, out var from) || !folderOf.TryGetValue(e.ToSlug, out var to)) { continue; }
-            if (from.Equals(to, StringComparison.OrdinalIgnoreCase)) { continue; }
-            counts[(from, to)] = counts.GetValueOrDefault((from, to)) + 1;
-        }
-
-        var involved = counts.Keys.SelectMany(k => new[] { k.From, k.To }).Distinct(StringComparer.OrdinalIgnoreCase);
-        var nodes = fileCount.Keys.Union(involved, StringComparer.OrdinalIgnoreCase)
-            .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
-            .Select(f => new DiagramNode("fold:" + f, f + "/", "folder", NodeShape.Rounded,
-                Tooltip: $"Folder: {f}/\nFiles: {fileCount.GetValueOrDefault(f, 0):N0}"))
-            .ToList();
-        var edges = counts.OrderBy(kv => kv.Key.From, StringComparer.OrdinalIgnoreCase).ThenBy(kv => kv.Key.To, StringComparer.OrdinalIgnoreCase)
-            .Select(kv => new DiagramEdge("fold:" + kv.Key.From, "fold:" + kv.Key.To, kv.Value == 1 ? "" : $"{kv.Value} imports"))
-            .ToList();
-
-        var (n, e2) = GraphReducer.TrimToMax(nodes, edges, maxNodes);
-        return MermaidRenderer.Render(n, e2, totalNodes: nodes.Count);
     }
 
     /// <summary>Files within one top-level folder, plus their most-imported external packages.</summary>

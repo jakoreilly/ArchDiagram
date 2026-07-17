@@ -101,9 +101,9 @@ graphs, and a dedicated page per file. Every diagram supports pan, zoom, hover d
 
         var (archLede, archDiagram) = model.Projects.Count > 0
             ? ("Projects discovered in the tree, their project references, and the databases their code connects to. Hover a node for its path, framework and packages.",
-               BuildProjectDiagram(model, maxNodes))
+               ArchitectureDiagrams.BuildProjectDiagram(model, maxNodes))
             : ("No .NET projects (.csproj) were found, so this overview shows how the top-level folders depend on each other, based on imports between the files inside them.",
-               DependenciesPage.BuildFolderOverview(model, maxNodes));
+               ArchitectureDiagrams.BuildFolderOverview(model, maxNodes));
 
         // The static Mermaid diagram earns its place only when it actually relates several
         // boxes; at ~3 nodes or fewer it collapses to something the interactive graph shows
@@ -302,42 +302,4 @@ graphs, and a dedicated page per file. Every diagram supports pan, zoom, hover d
             : $"<a class=\"tile\" href=\"{href}\">{inner}</a>");
     }
 
-    public static Diagram BuildProjectDiagram(ProjectModel model, int maxNodes)
-    {
-        var nodes = new List<DiagramNode>();
-        var edges = new List<DiagramEdge>();
-
-        foreach (var p in model.Projects)
-        {
-            var packages = p.PackageReferences.Count == 0 ? "none"
-                : string.Join(", ", p.PackageReferences.Take(6)) + (p.PackageReferences.Count > 6 ? ", …" : "");
-            var tooltip = $"{p.RelPath}\nTarget: {(p.TargetFramework.Length > 0 ? p.TargetFramework : "unknown")}\nPackages: {packages}";
-            nodes.Add(new DiagramNode("proj:" + p.Name, p.Name, "service", Tooltip: tooltip));
-        }
-
-        var projNames = new HashSet<string>(model.Projects.Select(p => p.Name), StringComparer.OrdinalIgnoreCase);
-        foreach (var p in model.Projects)
-        {
-            foreach (var r in p.ProjectReferenceNames.Where(projNames.Contains))
-            {
-                edges.Add(new DiagramEdge("proj:" + p.Name, "proj:" + r, "reference"));
-            }
-        }
-
-        foreach (var db in model.Databases)
-        {
-            var tooltip = $"Database node (deduplicated by normalized connection string)\nServer: {(db.Server.Length > 0 ? db.Server : "unknown")}\nCatalog: {(db.Catalog.Length > 0 ? db.Catalog : "unknown")}\nHash: {db.Hash[..16]}…";
-            nodes.Add(new DiagramNode("db:" + db.Hash, db.Label, "database", NodeShape.Database, tooltip));
-        }
-        foreach (var p in model.Projects)
-        {
-            foreach (var hash in p.ConnectionStrings.Select(c => c.Hash).Distinct())
-            {
-                edges.Add(new DiagramEdge("proj:" + p.Name, "db:" + hash, "sql"));
-            }
-        }
-
-        var (n, e) = GraphReducer.TrimToMax(nodes, edges.DistinctBy(x => (x.FromId, x.ToId, x.Label)).ToList(), maxNodes);
-        return MermaidRenderer.Render(n, e, totalNodes: nodes.Count);
-    }
 }

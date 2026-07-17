@@ -37,6 +37,19 @@ public static class FilePage
             sb.Append($"<p><a class=\"btn\" href=\"../graph.html#path={Uri.EscapeDataString(file.RelPath)}\">View in 3D graph →</a></p>");
         }
 
+        AppendTiles(sb, model, file, incoming, outgoing);
+        AppendPurpose(sb, file);
+        if (incoming.Count > 0 || outgoing.Count > 0) { AppendConnections(sb, file, incoming, outgoing, bySlug, maxNodes); }
+        if (file.Imports.Count > 0) { AppendImports(sb, file); }
+        if (file.Todos.Count > 0) { AppendTodos(sb, file); }
+        if (file.Types.Count > 0) { AppendTypesAndMethods(sb, model, file, showComplexity, showSnippets); }
+        if (callsOut.Count > 0 || callsIn.Count > 0) { AppendCrossFileCalls(sb, callsOut, callsIn, bySlug); }
+
+        return sb.ToString();
+    }
+
+    private static void AppendTiles(StringBuilder sb, ProjectModel model, FileNode file, List<DepEdge> incoming, List<DepEdge> outgoing)
+    {
         sb.Append("<div class=\"tiles\">");
         var owningProject = OwningProject(model, file.RelPath);
         if (owningProject.Length > 0)
@@ -49,106 +62,106 @@ public static class FilePage
         sb.Append($"<div class=\"tile\"><div class=\"num\">{file.Types.Count:N0}</div><div class=\"lbl\">Types</div></div>");
         sb.Append($"<div class=\"tile\"><div class=\"num\">{incoming.Count + outgoing.Count:N0}</div><div class=\"lbl\">File links</div></div>");
         sb.Append("</div>");
+    }
 
-        if (file.Purpose.Length > 0)
+    private static void AppendPurpose(StringBuilder sb, FileNode file)
+    {
+        if (file.Purpose.Length == 0) { return; }
+        var badge = file.PurposeSource == "authored"
+            ? "<span class=\"badge accent\" title=\"Hand-written in the descriptions sidecar\">authored</span>"
+            : $"<span class=\"badge warn\" title=\"Derived automatically — not hand-written documentation\">heuristic · {Html.Encode(file.PurposeSource)}</span>";
+        sb.Append($"<div class=\"panel\"><strong>Purpose</strong> {badge}<p style=\"margin:.4rem 0 0\">{Html.Encode(file.Purpose)}</p></div>");
+    }
+
+    // Mini dependency diagram: this file + direct neighbours.
+    private static void AppendConnections(StringBuilder sb, FileNode file, List<DepEdge> incoming, List<DepEdge> outgoing,
+        IReadOnlyDictionary<string, FileNode> bySlug, int maxNodes)
+    {
+        sb.Append("<h2>Connections</h2>");
+        sb.Append("<p class=\"lede\">Files that import this one (left) and everything this file imports (right). Grey dashed nodes are external packages.</p>");
+        var block = PageTemplate.DiagramBlock("filedeps", BuildNeighbourDiagram(file, incoming, outgoing, bySlug, maxNodes), file.Slug + "-connections");
+        sb.Append(block.Replace("class=\"stage\"", "class=\"stage small\""));
+        sb.Append(PageTemplate.Legend());
+    }
+
+    private static void AppendImports(StringBuilder sb, FileNode file)
+    {
+        sb.Append($"<h2>Imports <span class=\"badge\">{file.Imports.Count}</span></h2><div class=\"panel\"><ul class=\"member-list\">");
+        foreach (var i in file.Imports) { sb.Append($"<li>{Html.Encode(i)}</li>"); }
+        sb.Append("</ul></div>");
+    }
+
+    private static void AppendTodos(StringBuilder sb, FileNode file)
+    {
+        sb.Append($"<h2>Open markers <span class=\"badge warn\">{file.Todos.Count}</span></h2>");
+        sb.Append("<table class=\"grid\"><thead><tr><th>Tag</th><th>Line</th><th>Text</th></tr></thead><tbody>");
+        foreach (var t in file.Todos)
         {
-            var badge = file.PurposeSource == "authored"
-                ? "<span class=\"badge accent\" title=\"Hand-written in the descriptions sidecar\">authored</span>"
-                : $"<span class=\"badge warn\" title=\"Derived automatically — not hand-written documentation\">heuristic · {Html.Encode(file.PurposeSource)}</span>";
-            sb.Append($"<div class=\"panel\"><strong>Purpose</strong> {badge}<p style=\"margin:.4rem 0 0\">{Html.Encode(file.Purpose)}</p></div>");
+            var cls = t.Tag is "FIXME" or "BUG" ? "warn" : "";
+            var attribution = t.Author.Length > 0 ? $" <span class=\"badge accent\">{Html.Encode(t.Author)}</span>" : "";
+            sb.Append($"<tr><td><span class=\"badge {cls}\">{Html.Encode(t.Tag)}</span></td><td>{t.Line}</td><td>{Html.Encode(t.Text)}{attribution}</td></tr>");
         }
+        sb.Append("</tbody></table>");
+    }
 
-        // Mini dependency diagram: this file + direct neighbours.
-        if (incoming.Count > 0 || outgoing.Count > 0)
-        {
-            sb.Append("<h2>Connections</h2>");
-            sb.Append("<p class=\"lede\">Files that import this one (left) and everything this file imports (right). Grey dashed nodes are external packages.</p>");
-            var block = PageTemplate.DiagramBlock("filedeps", BuildNeighbourDiagram(file, incoming, outgoing, bySlug, maxNodes), file.Slug + "-connections");
-            sb.Append(block.Replace("class=\"stage\"", "class=\"stage small\""));
-            sb.Append(PageTemplate.Legend());
-        }
+    private static void AppendTypesAndMethods(StringBuilder sb, ProjectModel model, FileNode file, bool showComplexity, bool showSnippets)
+    {
+        // Read the source once per page only when snippets are needed; skipped
+        // silently if the file moved or is unreadable (snippets just won't show).
+        var wantsSnippets = showSnippets && file.Types.Any(t => t.Methods.Any(m =>
+            m.Cognitive >= Severity.HighThreshold && m.StartLine > 0 && m.EndLine >= m.StartLine));
+        var sourceLines = wantsSnippets ? TryReadLines(model.SourcePath, file.RelPath) : null;
 
-        if (file.Imports.Count > 0)
+        sb.Append("<h2>Types &amp; methods</h2>");
+        foreach (var type in file.Types)
         {
-            sb.Append($"<h2>Imports <span class=\"badge\">{file.Imports.Count}</span></h2><div class=\"panel\"><ul class=\"member-list\">");
-            foreach (var i in file.Imports) { sb.Append($"<li>{Html.Encode(i)}</li>"); }
-            sb.Append("</ul></div>");
-        }
-
-        if (file.Todos.Count > 0)
-        {
-            sb.Append($"<h2>Open markers <span class=\"badge warn\">{file.Todos.Count}</span></h2>");
-            sb.Append("<table class=\"grid\"><thead><tr><th>Tag</th><th>Line</th><th>Text</th></tr></thead><tbody>");
-            foreach (var t in file.Todos)
+            sb.Append("<div class=\"type-card\"><div class=\"type-head\">");
+            sb.Append($"<span class=\"badge accent\">{Html.Encode(type.Kind)}</span><span class=\"type-name\">{Html.Encode(type.Name)}</span>");
+            if (type.Namespace.Length > 0) { sb.Append($"<span class=\"badge\" title=\"Namespace\">{Html.Encode(type.Namespace)}</span>"); }
+            if (type.BaseTypes.Count > 0) { sb.Append($"<span class=\"badge\" title=\"Base types / implemented interfaces\">: {Html.Encode(string.Join(", ", type.BaseTypes))}</span>"); }
+            sb.Append("</div>");
+            if (type.XmlSummary.Length > 0) { sb.Append($"<p class=\"lede\" style=\"margin:.4rem 0 0;font-size:.88rem\">{Html.Encode(type.XmlSummary)}</p>"); }
+            if (type.Methods.Count > 0)
             {
-                var cls = t.Tag is "FIXME" or "BUG" ? "warn" : "";
-                var attribution = t.Author.Length > 0 ? $" <span class=\"badge accent\">{Html.Encode(t.Author)}</span>" : "";
-                sb.Append($"<tr><td><span class=\"badge {cls}\">{Html.Encode(t.Tag)}</span></td><td>{t.Line}</td><td>{Html.Encode(t.Text)}{attribution}</td></tr>");
-            }
-            sb.Append("</tbody></table>");
-        }
-
-        if (file.Types.Count > 0)
-        {
-            // Read the source once per page only when snippets are needed; skipped
-            // silently if the file moved or is unreadable (snippets just won't show).
-            var wantsSnippets = showSnippets && file.Types.Any(t => t.Methods.Any(m =>
-                m.Cognitive >= Severity.HighThreshold && m.StartLine > 0 && m.EndLine >= m.StartLine));
-            var sourceLines = wantsSnippets ? TryReadLines(model.SourcePath, file.RelPath) : null;
-
-            sb.Append("<h2>Types &amp; methods</h2>");
-            foreach (var type in file.Types)
-            {
-                sb.Append("<div class=\"type-card\"><div class=\"type-head\">");
-                sb.Append($"<span class=\"badge accent\">{Html.Encode(type.Kind)}</span><span class=\"type-name\">{Html.Encode(type.Name)}</span>");
-                if (type.Namespace.Length > 0) { sb.Append($"<span class=\"badge\" title=\"Namespace\">{Html.Encode(type.Namespace)}</span>"); }
-                if (type.BaseTypes.Count > 0) { sb.Append($"<span class=\"badge\" title=\"Base types / implemented interfaces\">: {Html.Encode(string.Join(", ", type.BaseTypes))}</span>"); }
-                sb.Append("</div>");
-                if (type.XmlSummary.Length > 0) { sb.Append($"<p class=\"lede\" style=\"margin:.4rem 0 0;font-size:.88rem\">{Html.Encode(type.XmlSummary)}</p>"); }
-                if (type.Methods.Count > 0)
+                sb.Append("<ul class=\"member-list\">");
+                foreach (var m in type.Methods)
                 {
-                    sb.Append("<ul class=\"member-list\">");
-                    foreach (var m in type.Methods)
-                    {
-                        var summary = m.XmlSummary.Length > 0 ? $"<span class=\"member-summary\">— {Html.Encode(m.XmlSummary)}</span>" : "";
-                        var badges = showComplexity ? ComplexityBadges(m) : "";
-                        var srcLink = m.StartLine > 0
-                            ? $"<span class=\"source-link\" data-sourcelink-path=\"{Html.Encode(file.RelPath)}\" data-sourcelink-line=\"{m.StartLine}\" data-sourcelink-mini></span>"
-                            : "";
-                        sb.Append($"<li title=\"{Html.Encode(m.Signature)}\">{Html.Encode(m.Signature)}{badges} {srcLink}{summary}");
-                        if (showSnippets) { AppendSnippet(sb, m, sourceLines); }
-                        sb.Append("</li>");
-                    }
-                    sb.Append("</ul>");
+                    var summary = m.XmlSummary.Length > 0 ? $"<span class=\"member-summary\">— {Html.Encode(m.XmlSummary)}</span>" : "";
+                    var badges = showComplexity ? ComplexityBadges(m) : "";
+                    var srcLink = m.StartLine > 0
+                        ? $"<span class=\"source-link\" data-sourcelink-path=\"{Html.Encode(file.RelPath)}\" data-sourcelink-line=\"{m.StartLine}\" data-sourcelink-mini></span>"
+                        : "";
+                    sb.Append($"<li title=\"{Html.Encode(m.Signature)}\">{Html.Encode(m.Signature)}{badges} {srcLink}{summary}");
+                    if (showSnippets) { AppendSnippet(sb, m, sourceLines); }
+                    sb.Append("</li>");
                 }
-                sb.Append("</div>");
+                sb.Append("</ul>");
             }
+            sb.Append("</div>");
         }
+    }
 
-        if (callsOut.Count > 0 || callsIn.Count > 0)
+    private static void AppendCrossFileCalls(StringBuilder sb, List<CallEdge> callsOut, List<CallEdge> callsIn, IReadOnlyDictionary<string, FileNode> bySlug)
+    {
+        sb.Append("<h2>Cross-file calls <span class=\"badge warn\" title=\"Matched by method name and parameter count — no compiler symbol resolution\">heuristic</span></h2>");
+        sb.Append("<table class=\"grid\"><thead><tr><th>Direction</th><th>Method here</th><th>Other method</th><th>Other file</th><th></th></tr></thead><tbody>");
+        foreach (var c in callsOut.Take(40))
         {
-            sb.Append("<h2>Cross-file calls <span class=\"badge warn\" title=\"Matched by method name and parameter count — no compiler symbol resolution\">heuristic</span></h2>");
-            sb.Append("<table class=\"grid\"><thead><tr><th>Direction</th><th>Method here</th><th>Other method</th><th>Other file</th><th></th></tr></thead><tbody>");
-            foreach (var c in callsOut.Take(40))
-            {
-                var other = bySlug.GetValueOrDefault(c.CalleeSlug);
-                sb.Append($"<tr><td>→ calls</td><td><code>{Html.Encode(c.CallerType)}.{Html.Encode(c.CallerMethod)}</code></td>" +
-                          $"<td><code>{Html.Encode(c.CalleeType)}.{Html.Encode(c.CalleeMethod)}</code></td>" +
-                          $"<td>{FileLink(other)}</td><td>{(c.Ambiguous ? "<span class=\"badge warn\" title=\"Several declared methods matched this call\">ambiguous</span>" : "")}</td></tr>");
-            }
-            foreach (var c in callsIn.Take(40))
-            {
-                var other = bySlug.GetValueOrDefault(c.CallerSlug);
-                sb.Append($"<tr><td>← called by</td><td><code>{Html.Encode(c.CalleeType)}.{Html.Encode(c.CalleeMethod)}</code></td>" +
-                          $"<td><code>{Html.Encode(c.CallerType)}.{Html.Encode(c.CallerMethod)}</code></td>" +
-                          $"<td>{FileLink(other)}</td><td>{(c.Ambiguous ? "<span class=\"badge warn\" title=\"Several declared methods matched this call\">ambiguous</span>" : "")}</td></tr>");
-            }
-            sb.Append("</tbody></table>");
-            var hidden = Math.Max(0, callsOut.Count - 40) + Math.Max(0, callsIn.Count - 40);
-            if (hidden > 0) { sb.Append($"<p class=\"note\">{hidden} more call links omitted for brevity — see model.json for the full list.</p>"); }
+            var other = bySlug.GetValueOrDefault(c.CalleeSlug);
+            sb.Append($"<tr><td>→ calls</td><td><code>{Html.Encode(c.CallerType)}.{Html.Encode(c.CallerMethod)}</code></td>" +
+                      $"<td><code>{Html.Encode(c.CalleeType)}.{Html.Encode(c.CalleeMethod)}</code></td>" +
+                      $"<td>{FileLink(other)}</td><td>{(c.Ambiguous ? "<span class=\"badge warn\" title=\"Several declared methods matched this call\">ambiguous</span>" : "")}</td></tr>");
         }
-
-        return sb.ToString();
+        foreach (var c in callsIn.Take(40))
+        {
+            var other = bySlug.GetValueOrDefault(c.CallerSlug);
+            sb.Append($"<tr><td>← called by</td><td><code>{Html.Encode(c.CalleeType)}.{Html.Encode(c.CalleeMethod)}</code></td>" +
+                      $"<td><code>{Html.Encode(c.CallerType)}.{Html.Encode(c.CallerMethod)}</code></td>" +
+                      $"<td>{FileLink(other)}</td><td>{(c.Ambiguous ? "<span class=\"badge warn\" title=\"Several declared methods matched this call\">ambiguous</span>" : "")}</td></tr>");
+        }
+        sb.Append("</tbody></table>");
+        var hidden = Math.Max(0, callsOut.Count - 40) + Math.Max(0, callsIn.Count - 40);
+        if (hidden > 0) { sb.Append($"<p class=\"note\">{hidden} more call links omitted for brevity — see model.json for the full list.</p>"); }
     }
 
     /// <summary>Complexity badges for a method: a severity band on cognitive plus a

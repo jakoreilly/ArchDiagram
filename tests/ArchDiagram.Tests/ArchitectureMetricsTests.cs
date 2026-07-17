@@ -62,12 +62,22 @@ public class ArchitectureMetricsTests
 
     [Theory]
     [InlineData(1.0, 0.0, 0, ArchitectureMetrics.Zone.Healthy)]        // pure unstable leaf: D=0
-    [InlineData(0.0, 0.0, 2, ArchitectureMetrics.Zone.ZoneOfPain)]     // stable concrete, has dependents
+    [InlineData(0.0, 0.0, 3, ArchitectureMetrics.Zone.ZoneOfPain)]     // stable concrete, real dependents (Ca >= MinPainfulCa)
+    [InlineData(0.0, 0.0, 2, ArchitectureMetrics.Zone.BenignLeaf)]     // stable concrete, Ca below the "heavily depended-on" floor
     [InlineData(0.0, 0.0, 0, ArchitectureMetrics.Zone.BenignLeaf)]     // stable concrete, no dependents
     [InlineData(1.0, 1.0, 0, ArchitectureMetrics.Zone.ZoneOfUselessness)]
     [InlineData(0.5, 0.0, 1, ArchitectureMetrics.Zone.Watch)]
     public void Classify_zones(double i, double a, int ca, ArchitectureMetrics.Zone expected)
         => Assert.Equal(expected, ArchitectureMetrics.Classify(i, a, ca));
+
+    [Fact]
+    public void Pure_data_module_is_watch_not_zone_of_pain_even_with_real_dependents()
+    {
+        // Same inputs as the ZoneOfPain case above, but isPureData=true: a namespace built
+        // entirely of records/DTOs can never score above 0 abstractness by construction, so
+        // "extract interfaces" is category-wrong advice — Watch (informational), not ZoneOfPain.
+        Assert.Equal(ArchitectureMetrics.Zone.Watch, ArchitectureMetrics.Classify(0.0, 0.0, 3, isPureData: true));
+    }
 
     [Fact]
     public void Detects_a_cycle()

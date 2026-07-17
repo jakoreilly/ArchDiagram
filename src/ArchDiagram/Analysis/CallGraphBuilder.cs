@@ -21,8 +21,23 @@ public static class CallGraphBuilder
 
     public static List<CallEdge> Build(IReadOnlyList<FileNode> files)
     {
-        // name -> declaring methods across the whole scanned set, each with its legal
-        // argument range so optional/params/named-arg calls still match (B6).
+        var declared = BuildDeclaredIndex(files);
+        var edges = ResolveEdges(files, declared);
+        return edges
+            .DistinctBy(e => (e.CallerSlug, e.CallerType, e.CallerMethod, e.CalleeSlug, e.CalleeType, e.CalleeMethod))
+            .OrderBy(e => e.CallerSlug, StringComparer.Ordinal)
+            .ThenBy(e => e.CallerType, StringComparer.Ordinal)
+            .ThenBy(e => e.CallerMethod, StringComparer.Ordinal)
+            .ThenBy(e => e.CalleeSlug, StringComparer.Ordinal)
+            .ThenBy(e => e.CalleeType, StringComparer.Ordinal)
+            .ThenBy(e => e.CalleeMethod, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    /// <summary>name -> declaring methods across the whole scanned set, each with its legal
+    /// argument range so optional/params/named-arg calls still match (B6).</summary>
+    private static Dictionary<string, List<Decl>> BuildDeclaredIndex(IReadOnlyList<FileNode> files)
+    {
         var declared = new Dictionary<string, List<Decl>>(StringComparer.Ordinal);
         foreach (var file in files)
         {
@@ -38,7 +53,11 @@ public static class CallGraphBuilder
                 }
             }
         }
+        return declared;
+    }
 
+    private static List<CallEdge> ResolveEdges(IReadOnlyList<FileNode> files, Dictionary<string, List<Decl>> declared)
+    {
         var edges = new List<CallEdge>();
         foreach (var file in files)
         {
@@ -74,15 +93,6 @@ public static class CallGraphBuilder
                 }
             }
         }
-
-        return edges
-            .DistinctBy(e => (e.CallerSlug, e.CallerType, e.CallerMethod, e.CalleeSlug, e.CalleeType, e.CalleeMethod))
-            .OrderBy(e => e.CallerSlug, StringComparer.Ordinal)
-            .ThenBy(e => e.CallerType, StringComparer.Ordinal)
-            .ThenBy(e => e.CallerMethod, StringComparer.Ordinal)
-            .ThenBy(e => e.CalleeSlug, StringComparer.Ordinal)
-            .ThenBy(e => e.CalleeType, StringComparer.Ordinal)
-            .ThenBy(e => e.CalleeMethod, StringComparer.Ordinal)
-            .ToList();
+        return edges;
     }
 }

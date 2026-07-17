@@ -52,7 +52,7 @@ public static class RefactoringBacklog
         }
 
         // Zone-of-pain modules.
-        foreach (var mod in m.Modules.Where(x => ArchitectureMetrics.Classify(x.Instability, x.Abstractness, x.Ca) == ArchitectureMetrics.Zone.ZoneOfPain).Take(8))
+        foreach (var mod in m.Modules.Where(x => ArchitectureMetrics.Classify(x.Instability, x.Abstractness, x.Ca, x.IsPureData) == ArchitectureMetrics.Zone.ZoneOfPain).Take(8))
         {
             items.Add(new Item(Sev.Medium, "Rigidity", $"Zone of pain: {mod.Key}",
                 $"{mod.Key} is concrete and heavily depended-on (Ca={mod.Ca}), so changes ripple and there are no contracts to depend on instead.",
@@ -92,11 +92,14 @@ public static class RefactoringBacklog
                 "Align on a single version, or adopt Central Package Management (Directory.Packages.props).", "packages.html"));
         }
 
-        // Dead code candidates (orphans).
-        if (model.FileDependencies.Count(e => e.ToSlug.Length > 0) > 0)
+        // Dead code candidates (orphans). Same-namespace/qualified-name references need no
+        // `using`, so the import graph alone under-counts connectivity — the heuristic call
+        // graph (name+arity matched, namespace-independent) catches what imports miss.
+        if (model.FileDependencies.Any(e => e.ToSlug.Length > 0) || model.Calls.Count > 0)
         {
             var connected = new HashSet<string>(StringComparer.Ordinal);
             foreach (var e in model.FileDependencies.Where(e => e.ToSlug.Length > 0)) { connected.Add(e.FromSlug); connected.Add(e.ToSlug); }
+            foreach (var c in model.Calls) { connected.Add(c.CallerSlug); connected.Add(c.CalleeSlug); }
             var orphans = model.Files.Count(f => CodebaseStats.IsFirstParty(f) && !connected.Contains(f.Slug) && f.Loc > 0);
             if (orphans > 0)
             {

@@ -14,7 +14,9 @@ public static class MaintainabilityScorer
     public sealed record FileScore(FileNode File, int Score, Band Band, int Loc, int MaxCognitive, int Coupling);
 
     /// <summary>Blend the three penalties into 0–100 (100 = most maintainable). Caps keep any one
-    /// driver from dominating; weights favour complexity, then size, then coupling.</summary>
+    /// driver from dominating; weights favour complexity, then size, then coupling.
+    /// <paramref name="coupling"/> is efferent (how much this file depends on), not afferent —
+    /// being widely depended-ON is not a maintenance risk to THIS file (see Rank).</summary>
     public static int Score(int loc, int maxCognitive, int coupling)
     {
         var penalty = Math.Min(35, loc / 20.0)          // ~700 LOC → −35
@@ -28,12 +30,14 @@ public static class MaintainabilityScorer
     /// <summary>Score every first-party file, worst (lowest) first. Deterministic.</summary>
     public static IReadOnlyList<FileScore> Rank(ProjectModel model)
     {
-        var fanIn = new Dictionary<string, int>(StringComparer.Ordinal);
+        // Efferent only (files THIS file depends on) — being widely depended-ON (afferent /
+        // fan-in) is a sign of a stable, well-factored, reused utility, not a maintenance risk
+        // to the utility itself. Summing both let a popular single-purpose file (high fan-in,
+        // ~zero fan-out) score identically to a genuinely tangled one (high fan-out).
         var fanOut = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var e in model.FileDependencies.Where(e => e.ToSlug.Length > 0))
         {
             fanOut[e.FromSlug] = fanOut.GetValueOrDefault(e.FromSlug) + 1;
-            fanIn[e.ToSlug] = fanIn.GetValueOrDefault(e.ToSlug) + 1;
         }
 
         return model.Files
@@ -41,7 +45,7 @@ public static class MaintainabilityScorer
             .Select(f =>
             {
                 var maxCog = f.Types.SelectMany(t => t.Methods).Select(m => m.Cognitive).DefaultIfEmpty(0).Max();
-                var coupling = fanIn.GetValueOrDefault(f.Slug) + fanOut.GetValueOrDefault(f.Slug);
+                var coupling = fanOut.GetValueOrDefault(f.Slug);
                 var score = Score(f.Loc, maxCog, coupling);
                 return new FileScore(f, score, ToBand(score), f.Loc, maxCog, coupling);
             })

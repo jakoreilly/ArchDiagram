@@ -1,6 +1,5 @@
 using System.Text;
 using ArchDiagram.Graph;
-using ArchDiagram.Site.Pages;
 
 namespace ArchDiagram.Site;
 
@@ -66,8 +65,8 @@ public static class WikiExporter
 
         sb.Append("<h2>Architecture diagram</h2>");
         var diagram = model.Projects.Count > 0
-            ? IndexPage.BuildProjectDiagram(model, maxNodes)
-            : DependenciesPage.BuildFolderOverview(model, maxNodes);
+            ? ArchitectureDiagrams.BuildProjectDiagram(model, maxNodes)
+            : ArchitectureDiagrams.BuildFolderOverview(model, maxNodes);
         sb.Append(MermaidMacro(diagram.Mermaid));
 
         if (model.Projects.Count > 0)

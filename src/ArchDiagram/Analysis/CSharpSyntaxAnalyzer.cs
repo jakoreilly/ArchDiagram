@@ -19,119 +19,132 @@ public sealed class CSharpSyntaxAnalyzer : ILanguageAnalyzer
         var imports = root.DescendantNodes().OfType<UsingDirectiveSyntax>()
             .Where(u => u.Alias is null && u.Name is not null)
             .Select(u => u.Name!.ToString())
+            // A file needs no `using` to reference another type in its OWN namespace (same-
+            // namespace lookup is implicit in C#), so that real dependency was otherwise
+            // invisible to ImportResolver — add each namespace this file declares a type in
+            // as an implicit import. ImportResolver already excludes self-edges (t.Slug !=
+            // file.Slug) and already caps same-namespace fan-out at MaxNamespaceEdgesPerImport,
+            // so this reuses the existing heuristic precision rather than adding a new edge type.
+            .Concat(root.DescendantNodes().OfType<BaseNamespaceDeclarationSyntax>().Select(n => n.Name.ToString()))
             .Distinct(StringComparer.Ordinal)
             .OrderBy(u => u, StringComparer.Ordinal)
             .ToList();
 
-        var types = new List<Graph.TypeInfo>();
-        foreach (var decl in root.DescendantNodes().OfType<BaseTypeDeclarationSyntax>())
-        {
-            var ns = GetNamespace(decl);
-            var kind = decl switch
-            {
-                ClassDeclarationSyntax => "class",
-                StructDeclarationSyntax => "struct",
-                InterfaceDeclarationSyntax => "interface",
-                RecordDeclarationSyntax r => r.ClassOrStructKeyword.IsKind(SyntaxKind.StructKeyword) ? "record struct" : "record",
-                EnumDeclarationSyntax => "enum",
-                _ => "type",
-            };
-
-            var methods = new List<Graph.MethodInfo>();
-            var properties = new List<string>();
-            var fields = new List<string>();
-            if (decl is TypeDeclarationSyntax typeDecl)
-            {
-                foreach (var m in typeDecl.Members.OfType<MethodDeclarationSyntax>())
-                {
-                    methods.Add(BuildMethod(m.Identifier.Text, m.ParameterList.Parameters.Count, BuildSignature(m), m));
-                }
-                foreach (var c in typeDecl.Members.OfType<ConstructorDeclarationSyntax>())
-                {
-                    var sig = $"{c.Identifier.Text}({string.Join(", ", c.ParameterList.Parameters.Select(p => p.Type?.ToString() ?? "?"))}) (constructor)";
-                    methods.Add(BuildMethod(c.Identifier.Text, c.ParameterList.Parameters.Count, sig, c));
-                }
-                // B5: operators/conversions carry real logic too.
-                foreach (var op in typeDecl.Members.OfType<OperatorDeclarationSyntax>())
-                {
-                    methods.Add(BuildMethod($"operator {op.OperatorToken.Text}", op.ParameterList.Parameters.Count,
-                        $"{op.ReturnType} operator {op.OperatorToken.Text}(...)", op));
-                }
-                foreach (var op in typeDecl.Members.OfType<ConversionOperatorDeclarationSyntax>())
-                {
-                    methods.Add(BuildMethod($"operator {op.Type}", op.ParameterList.Parameters.Count,
-                        $"operator {op.Type}(...)", op));
-                }
-                // B5: expression-bodied / accessor-bodied properties & indexers hold invocations
-                // and branching. Auto-properties (no executable code) are listed via F2 only.
-                foreach (var p in typeDecl.Members.OfType<BasePropertyDeclarationSyntax>())
-                {
-                    var pname = PropertyName(p);
-                    if (HasExecutableBody(p))
-                    {
-                        methods.Add(BuildMethod(pname, 0, $"{p.Type} {pname} {{ … }}", p));
-                    }
-                    properties.Add($"{pname} : {p.Type}");
-                }
-                foreach (var fd in typeDecl.Members.OfType<FieldDeclarationSyntax>())
-                {
-                    foreach (var v in fd.Declaration.Variables)
-                    {
-                        fields.Add($"{v.Identifier.Text} : {fd.Declaration.Type}");
-                    }
-                }
-            }
-
-            types.Add(new Graph.TypeInfo
-            {
-                Name = decl.Identifier.Text,
-                Kind = kind,
-                Namespace = ns,
-                Modifiers = decl.Modifiers.ToString(),
-                BaseTypes = decl.BaseList?.Types.Select(t => t.Type.ToString()).ToList() ?? [],
-                XmlSummary = GetXmlSummary(decl),
-                Methods = methods,
-                Properties = properties,
-                Fields = fields,
-            });
-        }
-
-        // B5: top-level statements (Program.cs) declare no type, so their invocations and
-        // complexity were invisible. Synthesize a "<top-level>" type with a "<main>" member.
-        var globals = root.Members.OfType<GlobalStatementSyntax>().ToList();
-        if (globals.Count > 0)
-        {
-            var invocations = globals
-                .SelectMany(g => g.DescendantNodes().OfType<InvocationExpressionSyntax>())
-                .Select(inv => new Graph.InvocationRef(InvokedName(inv.Expression), inv.ArgumentList.Arguments.Count))
-                .Where(r => r.Name.Length > 0)
-                .Distinct()
-                .OrderBy(r => r.Name, StringComparer.Ordinal).ThenBy(r => r.Arity)
-                .ToList();
-            types.Add(new Graph.TypeInfo
-            {
-                Name = "<top-level>",
-                Kind = "top-level",
-                Namespace = "",
-                XmlSummary = "Top-level statements (program entry point).",
-                Methods =
-                [
-                    new Graph.MethodInfo
-                    {
-                        Name = "<main>",
-                        Arity = 0,
-                        Signature = "<top-level statements>",
-                        Cyclomatic = 1 + globals.Sum(g => ComplexityMetrics.Cyclomatic(g) - 1),
-                        Cognitive = globals.Sum(ComplexityMetrics.Cognitive),
-                        StartLine = LineOf(globals[0], first: true),
-                        EndLine = LineOf(globals[^1], first: false),
-                        Invocations = invocations,
-                    },
-                ],
-            });
-        }
+        var types = root.DescendantNodes().OfType<BaseTypeDeclarationSyntax>().Select(BuildType).ToList();
+        var topLevel = BuildTopLevelType(root);
+        if (topLevel is not null) { types.Add(topLevel); }
 
         return new FileFacts { Language = "C#", Imports = imports, Types = types };
+    }
+
+    private static Graph.TypeInfo BuildType(BaseTypeDeclarationSyntax decl)
+    {
+        var ns = GetNamespace(decl);
+        var kind = decl switch
+        {
+            ClassDeclarationSyntax => "class",
+            StructDeclarationSyntax => "struct",
+            InterfaceDeclarationSyntax => "interface",
+            RecordDeclarationSyntax r => r.ClassOrStructKeyword.IsKind(SyntaxKind.StructKeyword) ? "record struct" : "record",
+            EnumDeclarationSyntax => "enum",
+            _ => "type",
+        };
+
+        var methods = new List<Graph.MethodInfo>();
+        var properties = new List<string>();
+        var fields = new List<string>();
+        if (decl is TypeDeclarationSyntax typeDecl)
+        {
+            foreach (var m in typeDecl.Members.OfType<MethodDeclarationSyntax>())
+            {
+                methods.Add(BuildMethod(m.Identifier.Text, m.ParameterList.Parameters.Count, BuildSignature(m), m));
+            }
+            foreach (var c in typeDecl.Members.OfType<ConstructorDeclarationSyntax>())
+            {
+                var sig = $"{c.Identifier.Text}({string.Join(", ", c.ParameterList.Parameters.Select(p => p.Type?.ToString() ?? "?"))}) (constructor)";
+                methods.Add(BuildMethod(c.Identifier.Text, c.ParameterList.Parameters.Count, sig, c));
+            }
+            // B5: operators/conversions carry real logic too.
+            foreach (var op in typeDecl.Members.OfType<OperatorDeclarationSyntax>())
+            {
+                methods.Add(BuildMethod($"operator {op.OperatorToken.Text}", op.ParameterList.Parameters.Count,
+                    $"{op.ReturnType} operator {op.OperatorToken.Text}(...)", op));
+            }
+            foreach (var op in typeDecl.Members.OfType<ConversionOperatorDeclarationSyntax>())
+            {
+                methods.Add(BuildMethod($"operator {op.Type}", op.ParameterList.Parameters.Count,
+                    $"operator {op.Type}(...)", op));
+            }
+            // B5: expression-bodied / accessor-bodied properties & indexers hold invocations
+            // and branching. Auto-properties (no executable code) are listed via F2 only.
+            foreach (var p in typeDecl.Members.OfType<BasePropertyDeclarationSyntax>())
+            {
+                var pname = PropertyName(p);
+                if (HasExecutableBody(p))
+                {
+                    methods.Add(BuildMethod(pname, 0, $"{p.Type} {pname} {{ … }}", p));
+                }
+                properties.Add($"{pname} : {p.Type}");
+            }
+            foreach (var fd in typeDecl.Members.OfType<FieldDeclarationSyntax>())
+            {
+                foreach (var v in fd.Declaration.Variables)
+                {
+                    fields.Add($"{v.Identifier.Text} : {fd.Declaration.Type}");
+                }
+            }
+        }
+
+        return new Graph.TypeInfo
+        {
+            Name = decl.Identifier.Text,
+            Kind = kind,
+            Namespace = ns,
+            Modifiers = decl.Modifiers.ToString(),
+            BaseTypes = decl.BaseList?.Types.Select(t => t.Type.ToString()).ToList() ?? [],
+            XmlSummary = GetXmlSummary(decl),
+            Methods = methods,
+            Properties = properties,
+            Fields = fields,
+        };
+    }
+
+    // B5: top-level statements (Program.cs) declare no type, so their invocations and
+    // complexity were invisible. Synthesize a "<top-level>" type with a "<main>" member.
+    // Returns null when the file has no top-level statements (the common case).
+    private static Graph.TypeInfo? BuildTopLevelType(CompilationUnitSyntax root)
+    {
+        var globals = root.Members.OfType<GlobalStatementSyntax>().ToList();
+        if (globals.Count == 0) { return null; }
+
+        var invocations = globals
+            .SelectMany(g => g.DescendantNodes().OfType<InvocationExpressionSyntax>())
+            .Select(inv => new Graph.InvocationRef(InvokedName(inv.Expression), inv.ArgumentList.Arguments.Count))
+            .Where(r => r.Name.Length > 0)
+            .Distinct()
+            .OrderBy(r => r.Name, StringComparer.Ordinal).ThenBy(r => r.Arity)
+            .ToList();
+        return new Graph.TypeInfo
+        {
+            Name = "<top-level>",
+            Kind = "top-level",
+            Namespace = "",
+            XmlSummary = "Top-level statements (program entry point).",
+            Methods =
+            [
+                new Graph.MethodInfo
+                {
+                    Name = "<main>",
+                    Arity = 0,
+                    Signature = "<top-level statements>",
+                    Cyclomatic = 1 + globals.Sum(g => ComplexityMetrics.Cyclomatic(g) - 1),
+                    Cognitive = globals.Sum(ComplexityMetrics.Cognitive),
+                    StartLine = LineOf(globals[0], first: true),
+                    EndLine = LineOf(globals[^1], first: false),
+                    Invocations = invocations,
+                },
+            ],
+        };
     }
 
     private static Graph.MethodInfo BuildMethod(string name, int arity, string signature, SyntaxNode decl)

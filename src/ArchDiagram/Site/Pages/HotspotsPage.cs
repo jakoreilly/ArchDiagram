@@ -58,8 +58,23 @@ TODO/FIXME left in comments. High fan-in files are risky to change; high fan-out
             fanOut, bySlug, "imports");
         sb.Append("</div>");
 
-        // Largest files. Vendored/minified bundles are excluded — a 3 MB library would
-        // otherwise top this list and bury the project's own largest files.
+        AppendLargestFiles(sb, model);
+        AppendMaintainability(sb, model);
+
+        if (showComplexity) { AppendMostComplex(sb, model); }
+
+        if (external.Count > 0) { AppendExternalPackages(sb, external); }
+
+        AppendOrphans(sb, model);
+        AppendTodoMarkers(sb, todoFiles, todoCount, testTodoCount);
+
+        return sb.ToString();
+    }
+
+    // Largest files. Vendored/minified bundles are excluded — a 3 MB library would
+    // otherwise top this list and bury the project's own largest files.
+    private static void AppendLargestFiles(StringBuilder sb, ProjectModel model)
+    {
         sb.Append("<h2>Largest files</h2>");
         sb.Append("<table class=\"grid\"><thead><tr><th>File</th><th>Language</th><th>LOC</th><th>Size</th><th>Types</th><th>Methods</th></tr></thead><tbody>");
         foreach (var f in model.Files.Where(f => !f.IsVendored).OrderByDescending(f => f.Loc).Take(20))
@@ -69,63 +84,54 @@ TODO/FIXME left in comments. High fan-in files are risky to change; high fan-out
                       $"<td>{f.Types.Count:N0}</td><td>{f.Types.Sum(t => t.Methods.Count):N0}</td></tr>");
         }
         sb.Append("</tbody></table>");
+    }
 
-        AppendMaintainability(sb, model);
-
-        if (showComplexity) { AppendMostComplex(sb, model); }
-
-        // External packages.
-        if (external.Count > 0)
+    private static void AppendExternalPackages(StringBuilder sb, IReadOnlyDictionary<string, int> external)
+    {
+        sb.Append($"<h2>External packages &amp; namespaces <span class=\"badge\">{external.Count}</span></h2>");
+        sb.Append("<p class=\"lede\">Imports that did not resolve to a file inside this codebase, ranked by how many files use them.</p>");
+        sb.Append("<table class=\"grid\"><thead><tr><th>Package / namespace</th><th>Imported by</th></tr></thead><tbody>");
+        foreach (var (name, count) in external.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal).Take(40))
         {
-            sb.Append($"<h2>External packages &amp; namespaces <span class=\"badge\">{external.Count}</span></h2>");
-            sb.Append("<p class=\"lede\">Imports that did not resolve to a file inside this codebase, ranked by how many files use them.</p>");
-            sb.Append("<table class=\"grid\"><thead><tr><th>Package / namespace</th><th>Imported by</th></tr></thead><tbody>");
-            foreach (var (name, count) in external.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal).Take(40))
-            {
-                sb.Append($"<tr><td><code>{Html.Encode(name)}</code></td><td>{count:N0} file(s)</td></tr>");
-            }
-            sb.Append("</tbody></table>");
-            if (external.Count > 40) { sb.Append($"<p class=\"note\">{external.Count - 40} more in model.json.</p>"); }
+            sb.Append($"<tr><td><code>{Html.Encode(name)}</code></td><td>{count:N0} file(s)</td></tr>");
         }
+        sb.Append("</tbody></table>");
+        if (external.Count > 40) { sb.Append($"<p class=\"note\">{external.Count - 40} more in model.json.</p>"); }
+    }
 
-        AppendOrphans(sb, model);
-
-        // TODOs.
+    private static void AppendTodoMarkers(StringBuilder sb, List<FileNode> todoFiles, int todoCount, int testTodoCount)
+    {
         sb.Append($"<h2>TODO / FIXME markers <span class=\"badge {(todoCount > 0 ? "warn" : "ok")}\">{todoCount}</span></h2>");
         if (todoCount == 0 && testTodoCount == 0)
         {
             sb.Append("<div class=\"panel empty-state\"><div class=\"big\">✓</div><p>No TODO, FIXME, HACK or BUG markers were found in comments. Clean!</p></div>");
+            return;
         }
-        else
+        if (todoCount == 0)
         {
-            if (todoCount == 0)
-            {
-                sb.Append("<div class=\"panel empty-state\"><div class=\"big\">✓</div><p>No TODO/FIXME markers in first-party code.</p></div>");
-            }
-            if (testTodoCount > 0)
-            {
-                sb.Append($"<p class=\"note\">{testTodoCount:N0} marker(s) are in test files (often fixture strings, not real work) — "
-                        + "hidden by default; use the 🧪 Tests toggle to show them.</p>");
-            }
-            sb.Append("<table class=\"grid\"><thead><tr><th>Tag</th><th>Text</th><th>File</th><th>Line</th></tr></thead><tbody>");
-            var shown = 0;
-            foreach (var f in todoFiles.OrderBy(f => f.IsTest).ThenByDescending(f => f.Todos.Count))
-            {
-                foreach (var t in f.Todos)
-                {
-                    if (++shown > 200) { break; }
-                    var cls = t.Tag is "FIXME" or "BUG" ? "warn" : "";
-                    var attribution = t.Author.Length > 0 ? $" <span class=\"badge accent\">{Html.Encode(t.Author)}</span>" : "";
-                    sb.Append($"<tr{(f.IsTest ? " data-test=\"1\"" : "")}><td><span class=\"badge {cls}\">{Html.Encode(t.Tag)}</span></td><td>{Html.Encode(t.Text)}{attribution}</td>" +
-                              $"<td><a href=\"files/{f.Slug}.html\">{Html.Encode(f.RelPath)}</a></td><td>{t.Line}</td></tr>");
-                }
-                if (shown > 200) { break; }
-            }
-            sb.Append("</tbody></table>");
-            if (todoCount > 200) { sb.Append($"<p class=\"note\">{todoCount - 200} more markers in model.json.</p>"); }
+            sb.Append("<div class=\"panel empty-state\"><div class=\"big\">✓</div><p>No TODO/FIXME markers in first-party code.</p></div>");
         }
-
-        return sb.ToString();
+        if (testTodoCount > 0)
+        {
+            sb.Append($"<p class=\"note\">{testTodoCount:N0} marker(s) are in test files (often fixture strings, not real work) — "
+                    + "hidden by default; use the 🧪 Tests toggle to show them.</p>");
+        }
+        sb.Append("<table class=\"grid\"><thead><tr><th>Tag</th><th>Text</th><th>File</th><th>Line</th></tr></thead><tbody>");
+        var shown = 0;
+        foreach (var f in todoFiles.OrderBy(f => f.IsTest).ThenByDescending(f => f.Todos.Count))
+        {
+            foreach (var t in f.Todos)
+            {
+                if (++shown > 200) { break; }
+                var cls = t.Tag is "FIXME" or "BUG" ? "warn" : "";
+                var attribution = t.Author.Length > 0 ? $" <span class=\"badge accent\">{Html.Encode(t.Author)}</span>" : "";
+                sb.Append($"<tr{(f.IsTest ? " data-test=\"1\"" : "")}><td><span class=\"badge {cls}\">{Html.Encode(t.Tag)}</span></td><td>{Html.Encode(t.Text)}{attribution}</td>" +
+                          $"<td><a href=\"files/{f.Slug}.html\">{Html.Encode(f.RelPath)}</a></td><td>{t.Line}</td></tr>");
+            }
+            if (shown > 200) { break; }
+        }
+        sb.Append("</tbody></table>");
+        if (todoCount > 200) { sb.Append($"<p class=\"note\">{todoCount - 200} more markers in model.json.</p>"); }
     }
 
     /// <summary>Per-file maintainability proxy: a distribution across good/moderate/poor and the
@@ -166,7 +172,7 @@ TODO/FIXME left in comments. High fan-in files are risky to change; high fan-out
         if (worst.Count > 0)
         {
             sb.Append("<table class=\"grid\"><thead><tr><th>File</th><th>Score</th><th>LOC</th>"
-                    + "<th>Peak cognitive</th><th>Coupling</th></tr></thead><tbody>");
+                    + "<th>Peak cognitive</th><th title=\"Fan-out: files this one depends on. Being widely depended-ON (fan-in) isn't counted here — that's popularity, not risk to this file.\">Coupling (outgoing)</th></tr></thead><tbody>");
             foreach (var s in worst)
             {
                 var cls = s.Band == Analysis.MaintainabilityScorer.Band.Poor ? "warn" : "";
@@ -226,7 +232,9 @@ Only C# methods are scored.</p>
     /// import links at all, so a language we don't resolve imports for doesn't flag everything.</summary>
     private static void AppendOrphans(StringBuilder sb, ProjectModel model)
     {
-        if (model.FileDependencies.Count(e => e.ToSlug.Length > 0) == 0) { return; }
+        var hasDeps = model.FileDependencies.Any(e => e.ToSlug.Length > 0);
+        var hasCalls = model.Calls.Count > 0;
+        if (!hasDeps && !hasCalls) { return; }
 
         var connected = new HashSet<string>(StringComparer.Ordinal);
         foreach (var e in model.FileDependencies)
@@ -235,13 +243,22 @@ Only C# methods are scored.</p>
             connected.Add(e.FromSlug);
             connected.Add(e.ToSlug);
         }
+        // A file the import graph misses entirely (referenced via a fully-qualified name with
+        // no `using`, or a same-namespace call — neither needs a `using` in C#) can still show
+        // up in the heuristic call graph, which matches by method name + arity across the whole
+        // codebase regardless of namespace — a stronger connectivity signal than imports here.
+        foreach (var c in model.Calls)
+        {
+            connected.Add(c.CallerSlug);
+            connected.Add(c.CalleeSlug);
+        }
         var orphans = model.Files
             .Where(f => !connected.Contains(f.Slug))
             .OrderBy(f => f.RelPath, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         sb.Append($"<h2>Unreferenced files <span class=\"badge\">{orphans.Count}</span></h2>");
-        sb.Append("<p class=\"lede\">Files with no incoming or outgoing links in the internal import graph. "
+        sb.Append("<p class=\"lede\">Files with no incoming or outgoing links in the internal import or call graph. "
                 + "Many are legitimately standalone (entry points, config, docs), but this is where dead code hides.</p>");
         if (orphans.Count == 0)
         {
