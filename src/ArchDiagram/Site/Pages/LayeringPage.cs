@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using ArchDiagram.Analysis;
 using ArchDiagram.Graph;
 
@@ -51,6 +52,8 @@ public static class LayeringPage
             AppendViolations(sb, r, declared: false);
         }
 
+        AppendLayered3D(sb, model, r);
+
         // Tier / layer stack, top to bottom.
         foreach (var layer in r.Layers)
         {
@@ -71,6 +74,42 @@ public static class LayeringPage
 
         AppendHowToDeclare(sb, r.Declared);
         return sb.ToString();
+    }
+
+    /// <summary>A stacked-tier "3D chess board": each module pinned to an elevation by its tier,
+    /// dependency edges between the planes, red where they point against the grain. Reuses the
+    /// vendored ForceGraph3D bundle; degrades to the 2D tier list where WebGL is unavailable.</summary>
+    private static void AppendLayered3D(StringBuilder sb, ProjectModel model, LayeringAnalyzer.Result r)
+    {
+        var g = ModuleGrouper.Build(model);
+        var files = g.Modules.ToDictionary(m => m.Key, m => m.FileCount, StringComparer.Ordinal);
+        var tierOf = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var i = 0; i < r.Layers.Count; i++)
+        {
+            foreach (var key in r.Layers[i].Modules) { tierOf[key] = i; }
+        }
+        if (tierOf.Count < 2) { return; } // nothing meaningful to stack
+
+        var against = new HashSet<(string, string)>(r.Violations.Select(v => (v.FromModule, v.ToModule)));
+        var nodes = tierOf
+            .OrderBy(kv => kv.Key, StringComparer.Ordinal)
+            .Select(kv => new { id = kv.Key, label = kv.Key, tier = kv.Value, files = files.GetValueOrDefault(kv.Key) });
+        var links = g.Edges.Keys
+            .Where(e => tierOf.ContainsKey(e.From) && tierOf.ContainsKey(e.To))
+            .OrderBy(e => e.From, StringComparer.Ordinal).ThenBy(e => e.To, StringComparer.Ordinal)
+            .Select(e => new { source = e.From, target = e.To, against = against.Contains((e.From, e.To)) });
+        var payload = JsonSerializer.Serialize(new { tiers = r.Layers.Select(l => l.Name), nodes, links });
+
+        sb.Append("<h2>Layered view <span class=\"badge\">3D</span></h2>");
+        sb.Append("<p class=\"lede\">The tiers as a stack: each module floats at its stability level "
+                + "(orchestration on top, foundational at the base). Dependency edges run between the planes — "
+                + "<strong>red</strong> ones point <em>up</em>, against the grain. Drag to orbit, scroll to zoom, hover a node.</p>");
+        sb.Append("<div class=\"select-row\"><button class=\"btn\" id=\"layered3d-reset\" type=\"button\">Reset view</button></div>");
+        sb.Append("<div id=\"layered3d-root\" class=\"panel\" style=\"padding:0;position:relative\">"
+                + "<div id=\"layered3d-canvas\" class=\"graph3d-canvas\"></div></div>");
+        sb.Append("<script>window.ARCH_LAYERS=").Append(payload).Append(";</script>");
+        sb.Append("<script src=\"assets/lib/3d-force-graph.min.js\"></script>");
+        sb.Append("<script src=\"assets/layered3d.js\"></script>");
     }
 
     private static void AppendViolations(StringBuilder sb, LayeringAnalyzer.Result r, bool declared)

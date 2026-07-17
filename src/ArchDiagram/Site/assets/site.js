@@ -833,3 +833,17 @@
   });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") { close(); } });
 })();
+
+// ---- Mobile: off-canvas sidebar toggle ----
+(function () {
+  var toggle = document.getElementById("nav-toggle");
+  var layout = document.querySelector(".layout");
+  var overlay = document.getElementById("nav-overlay");
+  if (!toggle || !layout) { return; }
+  function open() { layout.classList.add("nav-open"); toggle.setAttribute("aria-expanded", "true"); if (overlay) { overlay.hidden = false; } }
+  function close() { layout.classList.remove("nav-open"); toggle.setAttribute("aria-expanded", "false"); }
+  toggle.addEventListener("click", function () { layout.classList.contains("nav-open") ? close() : open(); });
+  if (overlay) { overlay.addEventListener("click", close); }
+  document.querySelectorAll(".sidebar nav a").forEach(function (a) { a.addEventListener("click", close); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") { close(); } });
+})();

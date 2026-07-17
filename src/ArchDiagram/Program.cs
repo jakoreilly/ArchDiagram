@@ -41,6 +41,49 @@ if (args.Length > 0 && args[0] == "--landscape")
     return 0;
 }
 
+if (args.Length > 0 && args[0] == "--from-model")
+{
+    // Usage: archdiagram --from-model <model.json> [--out <dir>] [--no-open] [--no-wiki]
+    // Rebuilds the entire site from a saved model.json — no source scan. model.json is a
+    // complete, compact archive of everything the site renders from.
+    if (args.Length < 2 || args[1].StartsWith("--"))
+    {
+        Console.Error.WriteLine("error: --from-model requires a path to a model.json.");
+        return 2;
+    }
+    var modelPath = Path.GetFullPath(args[1]);
+    if (!File.Exists(modelPath)) { Console.Error.WriteLine($"error: '{modelPath}' not found."); return 2; }
+
+    string? fmOut = null;
+    var fmOpen = true;
+    var fmWiki = true;
+    var fmMax = 60;
+    for (var i = 2; i < args.Length; i++)
+    {
+        if (args[i] == "--out" && i + 1 < args.Length) { fmOut = args[++i]; }
+        else if (args[i] == "--no-open") { fmOpen = false; }
+        else if (args[i] == "--no-wiki") { fmWiki = false; }
+        else if (args[i] == "--max-nodes" && i + 1 < args.Length && int.TryParse(args[i + 1], out var mn)) { fmMax = Math.Max(10, mn); i++; }
+    }
+
+    ArchDiagram.Graph.ProjectModel fmModel;
+    try { fmModel = ArchDiagram.Rendering.ModelJsonReader.Read(modelPath); }
+    catch (Exception ex) { Console.Error.WriteLine($"error: could not read model: {ex.Message}"); return 1; }
+
+    fmOut = Path.GetFullPath(fmOut ?? $"site-{fmModel.RootName}", Directory.GetCurrentDirectory());
+    var fmOn = DateTime.Now.ToString("yyyy-MM-dd");
+    // Source snippets are omitted: the model carries no source text, so a rebuilt-from-archive
+    // site is faithful in every other respect. showComplexity is data-driven and stays on.
+    var fmIndex = SiteGenerator.Generate(fmModel, fmOut, fmMax, fmOn, showComplexity: true, showSnippets: false, wiki: fmWiki);
+    Console.Error.WriteLine($"archdiagram: rebuilt site from {modelPath} → {fmOut}");
+    if (fmOpen)
+    {
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(fmIndex) { UseShellExecute = true }); }
+        catch (Exception ex) { Console.Error.WriteLine($"archdiagram: could not auto-open: {ex.Message}"); }
+    }
+    return 0;
+}
+
 var options = CliOptions.Parse(args, out var exitCode);
 if (options is null) { return exitCode; }
 

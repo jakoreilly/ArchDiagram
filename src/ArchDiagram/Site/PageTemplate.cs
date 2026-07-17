@@ -102,7 +102,9 @@ public static class PageTemplate
 </head>
 <body>
 <div class="layout">
-  <aside class="sidebar">
+  <button class="nav-toggle" id="nav-toggle" type="button" aria-label="Open menu" aria-expanded="false">☰</button>
+  <div class="nav-overlay" id="nav-overlay" hidden></div>
+  <aside class="sidebar" id="sidebar">
     <div class="brand"><span class="brand-mark">◆</span><div><div class="brand-name">ArchDiagram</div><div class="brand-sub">{{Html.Encode(siteName)}}</div></div></div>
     <button class="btn search-open" id="search-open" type="button" title="Search files, types and methods (Ctrl+K)">🔍 Search <kbd>Ctrl K</kbd></button>
     <nav>
