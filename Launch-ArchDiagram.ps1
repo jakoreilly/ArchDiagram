@@ -28,6 +28,8 @@ $ErrorActionPreference = 'Stop'
 $LauncherDir = $PSScriptRoot
 $ToolProject = Join-Path $LauncherDir 'src\ArchDiagram'
 
+$env:MSBUILDDISABLENODEREUSE = '1' #Avoids running out of memory on some machines when scanning large projects with many files.
+
 function Write-Head($text) { Write-Host ""; Write-Host "== $text ==" -ForegroundColor Cyan }
 function Write-Info($text) { Write-Host "  $text" -ForegroundColor Gray }
 function Fail($text) { Write-Host ""; Write-Host "ERROR: $text" -ForegroundColor Red; Read-Host "Press Enter to exit"; exit 1 }
@@ -90,11 +92,16 @@ if ($cfg.DescriptionsFile) { $DescriptionsFile = [string]$cfg.DescriptionsFile }
 
 # Builds the shared scan-time arguments (exclude dirs + source linking + descriptions) appended
 # to both the group scan path and the single-project run.
-function Add-CommonScanArgs($argList) {
+function Add-CommonScanArgs($argList, $linkType = $null, $linkBase = $null, $linkRef = $null) {
+    # $linkType/$linkBase/$linkRef let a caller (group mode) override the global
+    # SourceLink* config per-project; $null means "use the global config value".
+    if ($null -eq $linkType) { $linkType = $SourceLinkType }
+    if ($null -eq $linkBase) { $linkBase = $SourceLinkBase }
+    if ($null -eq $linkRef)  { $linkRef  = $SourceLinkRef }
     foreach ($ex in $Exclude) { if ($ex) { $argList += @('--exclude', [string]$ex) } }
-    if ($SourceLinkType) { $argList += @('--source-link-type', $SourceLinkType) }
-    if ($SourceLinkBase) { $argList += @('--source-link-base', $SourceLinkBase) }
-    if ($SourceLinkRef)  { $argList += @('--source-link-ref', $SourceLinkRef) }
+    if ($linkType) { $argList += @('--source-link-type', $linkType) }
+    if ($linkBase) { $argList += @('--source-link-base', $linkBase) }
+    if ($linkRef)  { $argList += @('--source-link-ref', $linkRef) }
     if ($DescriptionsFile) { $argList += @('--descriptions', $DescriptionsFile) }
     return $argList
 }
@@ -127,6 +134,14 @@ if ($Landscape -and -not $HasGroups) {
 $WorkDir = Resolve-PathMaybeRelative $cfg.WorkDir $LauncherDir
 if (-not $WorkDir) { $WorkDir = Join-Path $LauncherDir 'work' }
 
+function ConvertTo-HttpsRepoUrl($sshUrl) {
+    # git@host:group/sub/repo.git -> https://host/group/sub/repo (used to auto-derive
+    # per-project SourceLinkBase in group mode, since each project's own GitLab path
+    # differs and a single global SourceLinkBase can't cover more than one repo).
+    if ($sshUrl -notmatch '^[\w.\-]+@([^:]+):(.+?)(\.git)?$') { return '' }
+    return "https://$($Matches[1])/$($Matches[2])"
+}
+
 function Get-Slug($name) {
     if ([string]::IsNullOrWhiteSpace($name)) { return 'project' }
     $slug = ($name -replace '[^A-Za-z0-9\-_.]', '-').Trim('-', '.')
@@ -150,17 +165,18 @@ function Invoke-CloneOrUpdate($url, $ref, $destParent) {
 
     if (Test-Path (Join-Path $dest '.git')) {
         Write-Info "Updating existing clone: $dest"
-        & git -C $dest fetch --prune
+        & git -C $dest fetch --prune | Out-Null
         if ($LASTEXITCODE -ne 0) { Fail "git fetch failed." }
         if ($ref) {
-            & git -C $dest checkout $ref
+            & git -C $dest checkout $ref | Out-Null
             if ($LASTEXITCODE -ne 0) { Fail "git checkout '$ref' failed." }
         }
-        & git -C $dest pull --ff-only
+        & git -C $dest pull --ff-only | Out-Null
+        if ($LASTEXITCODE -ne 0) { Fail "git pull failed." }
     } else {
         New-Item -ItemType Directory -Force -Path $destParent | Out-Null
         Write-Info "Cloning $url -> $dest"
-        if ($ref) { & git clone --branch $ref $url $dest } else { & git clone $url $dest }
+        if ($ref) { & git clone --branch $ref $url $dest | Out-Null } else { & git clone $url $dest | Out-Null }
         if ($LASTEXITCODE -ne 0) { Fail "git clone failed." }
     }
     return $dest
@@ -171,7 +187,7 @@ function Invoke-CloneOrUpdate($url, $ref, $destParent) {
 # own site-<project> folder, build one landscape per group, then optionally an
 # overall landscape across all groups. Reuses the single-project scan engine.
 
-function Invoke-ScanProject($scanTarget, $outputDir) {
+function Invoke-ScanProject($scanTarget, $outputDir, $linkType = $null, $linkBase = $null, $linkRef = $null) {
     Write-Info "Scan: $scanTarget"
     Write-Info "Output: $outputDir"
     $toolArgs = @('run', '--project', $ToolProject, '--', $scanTarget, '--out', $outputDir)
@@ -180,7 +196,7 @@ function Invoke-ScanProject($scanTarget, $outputDir) {
     if (-not $Complexity) { $toolArgs += '--no-complexity' }
     if (-not $Snippets)   { $toolArgs += '--no-snippets' }
     if (-not $Wiki)       { $toolArgs += '--no-wiki' }
-    $toolArgs = Add-CommonScanArgs $toolArgs
+    $toolArgs = Add-CommonScanArgs $toolArgs $linkType $linkBase $linkRef
     & dotnet @toolArgs
     if ($LASTEXITCODE -ne 0) { Fail "archdiagram exited with code $LASTEXITCODE while scanning $scanTarget." }
 }
@@ -207,7 +223,27 @@ if ($HasGroups) {
             $scanTarget = Resolve-ProjectEntry $entry
             $leaf = Split-Path -Leaf $scanTarget.TrimEnd('\', '/')
             $folder = "site-" + (Get-Slug $leaf)
-            Invoke-ScanProject $scanTarget (Join-Path $LauncherDir $folder)
+
+            # Per-project source link: an explicit SourceLinkType/Base/Ref on the entry wins;
+            # otherwise for a GitLab entry, auto-derive the HTTPS repo URL from its own
+            # GitLabUrl (each project has a different path, so the global config value
+            # can't cover more than one repo in the group).
+            $linkType = $null; $linkBase = $null; $linkRef = $null
+            if ($entry -isnot [string]) {
+                if ($entry.SourceLinkType) { $linkType = [string]$entry.SourceLinkType }
+                if ($entry.SourceLinkBase) { $linkBase = [string]$entry.SourceLinkBase }
+                if ($entry.SourceLinkRef)  { $linkRef  = [string]$entry.SourceLinkRef }
+                if (-not $linkBase -and $entry.GitLabUrl) {
+                    $derived = ConvertTo-HttpsRepoUrl ([string]$entry.GitLabUrl)
+                    if ($derived) {
+                        $linkBase = $derived
+                        if (-not $linkType) { $linkType = 'gitlab' }
+                        if (-not $linkRef -and $entry.GitRef) { $linkRef = [string]$entry.GitRef }
+                    }
+                }
+            }
+
+            Invoke-ScanProject $scanTarget (Join-Path $LauncherDir $folder) $linkType $linkBase $linkRef
             $siteFolders += $folder
         }
         Write-Head "Group landscape: $($group.Name)"
