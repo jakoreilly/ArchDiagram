@@ -39,8 +39,8 @@ public static class PageTemplate
     [
         ("Start", [("index.html", "Overview", "◈"), ("brief.html", "System Brief", "📄"), ("guide.html", "Guide", "❓")]),
         ("Structure", [("structure.html", "Structure", "🗀"), ("dependencies.html", "Dependencies", "⇄"),
-                       ("modules.html", "Modules", "⬡"), ("layers.html", "Dependency Direction", "≡"), ("graph.html", "Graph (3D)", "🕸")]),
-        ("Health", [("scorecard.html", "Scorecard", "✔"), ("refactor.html", "Refactoring", "🔧"), ("metrics.html", "Metrics", "📐"), ("hotspots.html", "Hotspots", "◉")]),
+                       ("modules.html", "Modules", "⬡"), ("layers.html", "Dependency Direction", "≡"), ("graph.html", "Graph (3D)", "🕸"), ("explore.html", "Explore", "🔎")]),
+        ("Health", [("scorecard.html", "Scorecard", "✔"), ("refactor.html", "Refactoring", "🔧"), ("metrics.html", "Metrics", "📐"), ("hotspots.html", "Hotspots", "◉"), ("evolution.html", "Evolution", "🕓")]),
         ("Code", [("types.html", "Types & Members", "❖"), ("api.html", "API Surface", "⧉"), ("calls.html", "Call Graph", "☎")]),
         ("Supply chain", [("packages.html", "Dependencies & Stack", "📦"), ("config.html", "Config & Secrets", "🔑")]),
     ];

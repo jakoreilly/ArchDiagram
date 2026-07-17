@@ -88,9 +88,17 @@ public static class SiteGenerator
             PageTemplate.Crumbs(("index.html", "Overview"), (null, "Hotspots")),
             HotspotsPage.Body(ctx, showComplexity));
 
+        WritePage(outDir, "evolution.html", "Evolution", model, "evolution.html", "",
+            PageTemplate.Crumbs(("index.html", "Overview"), (null, "Evolution")),
+            EvolutionPage.Body(model));
+
         WritePage(outDir, "graph.html", "Graph (3D)", model, "graph.html", "",
             PageTemplate.Crumbs(("index.html", "Overview"), (null, "Graph (3D)")),
             GraphPage.Body(model, ctx.GraphJson));
+
+        WritePage(outDir, "explore.html", "Explore", model, "explore.html", "",
+            PageTemplate.Crumbs(("index.html", "Overview"), (null, "Explore")),
+            ExplorePage.Body(model, ctx.GraphJson));
 
         foreach (var file in model.Files)
         {

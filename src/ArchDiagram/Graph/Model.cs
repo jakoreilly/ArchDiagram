@@ -24,6 +24,21 @@ public sealed record ProjectModel
     /// <summary>Declared architectural layers (top-to-bottom) from the optional layers sidecar;
     /// empty when none. Drives the Layering page's contract check. Additive.</summary>
     public List<LayerDef> Layers { get; init; } = [];
+
+    /// <summary>Git history summary for the scanned tree; null when the tree is not a git
+    /// working copy (a dropped-in folder, or a --from-model rebuild). Drives the Evolution
+    /// page and the churn/ownership fields on each <see cref="FileNode"/>. Additive.</summary>
+    public GitInfo? Git { get; init; }
+}
+
+/// <summary>Whole-repo git facts. <see cref="Available"/> is false when git or a .git dir was
+/// absent (the per-file churn fields then stay at their defaults). <see cref="Shallow"/> is true
+/// for a shallow clone, where commit counts undercount real history and must be labelled as such.</summary>
+public sealed record GitInfo
+{
+    public bool Available { get; init; }
+    public bool Shallow { get; init; }
+    public int TotalCommits { get; init; }
 }
 
 /// <summary>One source/config file in the scanned tree.</summary>
@@ -44,6 +59,17 @@ public sealed record FileNode
     public List<string> Imports { get; init; } = [];
     public List<TypeInfo> Types { get; init; } = [];
     public List<TodoItem> Todos { get; init; } = [];
+
+    /// <summary>Number of commits that touched this file (0 = unknown / no git history). A churn
+    /// signal: high-churn × high-complexity files are the classic refactoring hotspots. Additive.</summary>
+    public int CommitCount { get; init; }
+    /// <summary>Distinct authors who touched this file (0 = unknown). AuthorCount == 1 with a
+    /// non-trivial CommitCount flags a "bus factor 1" knowledge-concentration risk. Additive.</summary>
+    public int AuthorCount { get; init; }
+    /// <summary>The author of the most commits to this file ("" = unknown). Additive.</summary>
+    public string PrincipalAuthor { get; init; } = "";
+    /// <summary>ISO date (yyyy-MM-dd) of the most recent commit touching this file ("" = unknown). Additive.</summary>
+    public string LastModified { get; init; } = "";
 }
 
 /// <summary>A TODO/FIXME/HACK/BUG/XXX marker found in a source comment. <see cref="Author"/>

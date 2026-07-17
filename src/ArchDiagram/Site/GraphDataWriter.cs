@@ -40,6 +40,7 @@ public static class GraphDataWriter
             folder = f.RelPath.Contains('/') ? f.RelPath[..f.RelPath.IndexOf('/')] : "(root)",
             lang = f.Language,
             loc = f.Loc,
+            cog = f.Types.SelectMany(t => t.Methods).Select(m => m.Cognitive).DefaultIfEmpty(0).Max(),
             fanIn = fanIn.GetValueOrDefault(f.Slug),
             fanOut = fanOut.GetValueOrDefault(f.Slug),
             test = IsTestFile(f.RelPath),

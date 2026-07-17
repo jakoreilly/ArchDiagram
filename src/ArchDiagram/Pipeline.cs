@@ -38,6 +38,10 @@ public static class Pipeline
         var diagnostics = new List<string>();
         var entries = FileSystemScanner.Scan(options.SourcePath, options.Exclude, diagnostics);
         var authored = DescriptionsLoader.Load(options.DescriptionsPath, options.SourcePath, diagnostics);
+        // Whole-repo git aggregation, once, before the parallel scan — a read-only lookup each
+        // AnalyzeOne consults by RelPath. Non-fatal: a non-git tree yields an empty result and
+        // the churn fields stay at their defaults (see GitHistory).
+        var git = GitHistory.Analyze(options.SourcePath, diagnostics);
 
         var analyzers = new Analyzers(
             new CSharpSyntaxAnalyzer(), new CSharpUsingAnalyzer(),
@@ -51,7 +55,7 @@ public static class Pipeline
         // Parallel map: each file is read + analysed independently (CPU-bound Roslyn/regex
         // work dominates at scale). No shared mutable state is touched here.
         var results = new FileResult[entries.Count];
-        Parallel.For(0, entries.Count, idx => { results[idx] = AnalyzeOne(entries[idx], analyzers, authored); });
+        Parallel.For(0, entries.Count, idx => { results[idx] = AnalyzeOne(entries[idx], analyzers, authored, git.Files); });
 
         // Serial reduce — order-dependent shared state (Constraint 1: determinism).
         // Slug de-duplication and diagnostic order both depend on processing entries in their
@@ -89,6 +93,7 @@ public static class Pipeline
             Description = authored.Project,
             FolderDescriptions = new Dictionary<string, string>(authored.Folders, StringComparer.OrdinalIgnoreCase),
             Layers = LayersLoader.Load(options.SourcePath, diagnostics),
+            Git = git.Info.Available ? git.Info : null,
             SourceLink = options.SourceLinkType is "none" or ""
                 ? null
                 : new SourceLink { Type = options.SourceLinkType, Base = options.SourceLinkBase, Ref = options.SourceLinkRef },
@@ -101,7 +106,8 @@ public static class Pipeline
     /// is safe to call from any thread; this is also the exact seam a future incremental
     /// cache would memoise on <c>(entry.AbsPath, mtime, size)</c> — do not inline it back
     /// into the loop.</summary>
-    private static FileResult AnalyzeOne(FileEntry entry, Analyzers a, AuthoredDescriptions authored)
+    private static FileResult AnalyzeOne(FileEntry entry, Analyzers a, AuthoredDescriptions authored,
+        IReadOnlyDictionary<string, GitHistory.FileChurn> churn)
     {
         var localDiagnostics = new List<string>();
         var language = KnownFileAnalyzer.LanguageByExtension.GetValueOrDefault(entry.Extension, "Other");
@@ -152,6 +158,7 @@ public static class Pipeline
             }
         }
 
+        var c = churn.GetValueOrDefault(entry.RelPath);
         var node = new FileNode
         {
             RelPath = entry.RelPath,
@@ -164,6 +171,10 @@ public static class Pipeline
             Imports = facts.Imports,
             Types = facts.Types,
             Todos = analyzable && content.Length > 0 ? TodoScanner.Scan(content, facts.Language) : [],
+            CommitCount = c?.CommitCount ?? 0,
+            AuthorCount = c?.AuthorCount ?? 0,
+            PrincipalAuthor = c?.PrincipalAuthor ?? "",
+            LastModified = c?.LastModified ?? "",
         };
         PurposeHeuristics.Apply(node, content);
         // Authored file description (from the sidecar) wins over the heuristic purpose.

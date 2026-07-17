@@ -870,6 +870,158 @@
     bar.hidden = false;
     refresh();
   })();
+
+  /* ---- Explore: client-side query console over the embedded dependency model ----
+     Fixed, discoverable predicate vocabulary run entirely in-browser against window.ARCH_QUERY
+     (the same node/edge payload the 3D graph uses). Self-guards: returns immediately on any page
+     without #query-console. No network, no server — works from file://. */
+  (function () {
+    var box = document.getElementById("query-console");
+    var data = window.ARCH_QUERY;
+    if (!box || !data || !data.nodes) { return; }
+    var input = document.getElementById("query-input");
+    var resultsEl = document.getElementById("query-results");
+    var countEl = document.getElementById("query-count");
+
+    // Indexes over the payload, built once.
+    var byId = {};
+    data.nodes.forEach(function (n) { byId[n.id] = n; });
+    var out = {}, inc = {};                       // adjacency: id -> [ids]
+    (data.edges || []).forEach(function (e) {
+      (out[e.source] = out[e.source] || []).push(e.target);
+      (inc[e.target] = inc[e.target] || []).push(e.source);
+    });
+    var hasEdge = {};
+    (data.edges || []).forEach(function (e) { hasEdge[e.source] = 1; hasEdge[e.target] = 1; });
+
+    function matchNodes(term) {
+      var t = (term || "").trim().toLowerCase();
+      if (!t) { return []; }
+      return data.nodes.filter(function (n) { return (n.path || "").toLowerCase().indexOf(t) >= 0; });
+    }
+    // BFS transitive closure over an adjacency map from a set of seed ids (excludes the seeds).
+    function closure(seedIds, adj) {
+      var seen = {}, queue = seedIds.slice(), result = {};
+      seedIds.forEach(function (id) { seen[id] = 1; });
+      while (queue.length) {
+        var cur = queue.shift();
+        (adj[cur] || []).forEach(function (nx) {
+          if (!seen[nx]) { seen[nx] = 1; result[nx] = 1; queue.push(nx); }
+        });
+      }
+      return Object.keys(result).map(function (id) { return byId[id]; }).filter(Boolean);
+    }
+    function shortestPath(fromId, toId) {
+      if (fromId === toId) { return [byId[fromId]]; }
+      var prev = {}, seen = {}, queue = [fromId]; seen[fromId] = 1;
+      while (queue.length) {
+        var cur = queue.shift();
+        var nexts = out[cur] || [];
+        for (var i = 0; i < nexts.length; i++) {
+          var nx = nexts[i];
+          if (seen[nx]) { continue; }
+          seen[nx] = 1; prev[nx] = cur;
+          if (nx === toId) {
+            var chain = [toId]; for (var a = cur; a != null; a = prev[a]) { chain.push(a); }
+            return chain.reverse().map(function (id) { return byId[id]; });
+          }
+          queue.push(nx);
+        }
+      }
+      return null;
+    }
+    function idsToNodes(ids) {
+      var seen = {}, list = [];
+      (ids || []).forEach(function (id) { if (!seen[id] && byId[id]) { seen[id] = 1; list.push(byId[id]); } });
+      return list;
+    }
+
+    var NUM = { loc: "loc", cog: "cog", fanin: "fanIn", fanout: "fanOut" };
+
+    // Returns { nodes: [...], note: "" } or { error: "..." }.
+    function run(raw) {
+      var q = (raw || "").trim();
+      if (!q) { return { nodes: [] }; }
+      var lower = q.toLowerCase();
+
+      // Numeric filter: <field> <op> <n>
+      var num = /^(loc|cog|fanin|fanout)\s*(>=|<=|>|<|=)\s*(\d+)$/i.exec(q);
+      if (num) {
+        var field = NUM[num[1].toLowerCase()], op = num[2], n = parseInt(num[3], 10);
+        var hits = data.nodes.filter(function (nd) {
+          var v = nd[field] || 0;
+          return op === ">" ? v > n : op === ">=" ? v >= n : op === "<" ? v < n : op === "<=" ? v <= n : v === n;
+        });
+        return { nodes: sortNodes(hits) };
+      }
+
+      var m;
+      if ((m = /^orphans(?:\s+in\s+(.+))?$/i.exec(q))) {
+        var folder = m[1] ? m[1].trim().toLowerCase() : null;
+        var orph = data.nodes.filter(function (nd) {
+          if (hasEdge[nd.id]) { return false; }
+          return !folder || (nd.folder || "").toLowerCase() === folder || (nd.path || "").toLowerCase().indexOf(folder) >= 0;
+        });
+        return { nodes: sortNodes(orph) };
+      }
+      if ((m = /^folder:\s*(.+)$/i.exec(q))) {
+        var f = m[1].trim().toLowerCase();
+        return { nodes: sortNodes(data.nodes.filter(function (nd) { return (nd.folder || "").toLowerCase() === f; })) };
+      }
+      if ((m = /^lang:\s*(.+)$/i.exec(q))) {
+        var lg = m[1].trim().toLowerCase();
+        return { nodes: sortNodes(data.nodes.filter(function (nd) { return (nd.lang || "").toLowerCase().indexOf(lg) >= 0; })) };
+      }
+      if ((m = /^path:\s*(\S+)\s+(\S+)$/i.exec(q))) {
+        var a = matchNodes(m[1]), b = matchNodes(m[2]);
+        if (!a.length || !b.length) { return { nodes: [], note: "No file matches one of those names." }; }
+        var p = shortestPath(a[0].id, b[0].id);
+        return p ? { nodes: p, note: "shortest path (" + p.length + " nodes)" }
+                 : { nodes: [], note: "No dependency path from " + a[0].path + " to " + b[0].path + "." };
+      }
+      if ((m = /^(imports|importedby|usedby|reaches|reachedby):\s*(.+)$/i.exec(q))) {
+        var verb = m[1].toLowerCase(), anchors = matchNodes(m[2]);
+        if (!anchors.length) { return { nodes: [], note: "No file matches “" + m[2].trim() + "”." }; }
+        var ids = [];
+        if (verb === "imports") { anchors.forEach(function (nd) { ids = ids.concat(out[nd.id] || []); }); return { nodes: sortNodes(idsToNodes(ids)) }; }
+        if (verb === "importedby" || verb === "usedby") { anchors.forEach(function (nd) { ids = ids.concat(inc[nd.id] || []); }); return { nodes: sortNodes(idsToNodes(ids)) }; }
+        var adj = verb === "reaches" ? out : inc;
+        var acc = [];
+        anchors.forEach(function (nd) { acc = acc.concat(closure([nd.id], adj)); });
+        return { nodes: sortNodes(idsToNodes(acc.map(function (nd) { return nd.id; }))) };
+      }
+      return { error: "Unrecognised query. Open “Query reference” for the supported forms." };
+    }
+
+    function sortNodes(list) {
+      return list.slice().sort(function (x, y) { return (x.path || "").localeCompare(y.path || ""); });
+    }
+
+    function render(res) {
+      resultsEl.innerHTML = "";
+      if (res.error) { countEl.textContent = ""; resultsEl.innerHTML = '<li class="palette-empty">' + res.error + "</li>"; return; }
+      var n = res.nodes.length;
+      countEl.textContent = n + " file" + (n === 1 ? "" : "s") + (res.note ? " · " + res.note : "");
+      if (n === 0 && !res.note) { resultsEl.innerHTML = '<li class="palette-empty">No matches.</li>'; return; }
+      res.nodes.forEach(function (nd) {
+        var li = document.createElement("li");
+        var a = document.createElement("a");
+        a.href = nd.href; a.textContent = nd.path;
+        li.appendChild(a);
+        var meta = document.createElement("span");
+        meta.className = "palette-detail";
+        meta.textContent = nd.lang + " · " + (nd.loc || 0) + " LOC" + (nd.cog ? " · cog " + nd.cog : "");
+        li.appendChild(meta);
+        resultsEl.appendChild(li);
+      });
+    }
+
+    function go() { render(run(input.value)); }
+    input.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); go(); } });
+    box.querySelectorAll(".query-example").forEach(function (btn) {
+      btn.addEventListener("click", function () { input.value = btn.textContent; go(); input.focus(); });
+    });
+  })();
 })();
 
 // ---- Explain (ⓘ) popovers: Simple + Go deeper, from the embedded glossary ----
