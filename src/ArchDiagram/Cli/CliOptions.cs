@@ -67,10 +67,10 @@ public sealed record CliOptions
         // flag, 14 of them) is exactly what drives cognitive complexity sky-high; the flag ->
         // handler lookup does the same work as a switch without the branch count.
         // --max-nodes and --fail-on keep their own branch: both need extra validation beyond
-        // "does a value follow" (int parsing; gate-name checking), so folding them into the
-        // generic dictionaries would either lose the original TryParse-failure-falls-through
-        // behavior (see the GOTCHA at Verification V4 in plan.md) or need the same
-        // multi-statement body a dictionary entry can't cleanly express.
+        // "does a value follow" (int parsing; gate-name checking). Folding them into the
+        // generic dictionaries would either silently swallow a malformed value instead of
+        // falling through to the "unknown argument" error, or need the same multi-statement
+        // body a dictionary entry can't cleanly express.
         var boolFlags = new Dictionary<string, Action>(StringComparer.Ordinal)
         {
             ["--no-open"] = () => open = false,

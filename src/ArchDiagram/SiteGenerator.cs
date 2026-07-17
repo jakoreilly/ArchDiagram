@@ -21,7 +21,7 @@ public static class SiteGenerator
 
         // Computed once: fan-in/out, call indexes, scorecard, metrics, importance ranking and
         // the 3D graph payload. Every page below reuses this instead of recomputing its own
-        // copy (see plan.md Phase 1 — SiteContext).
+        // copy.
         var ctx = SiteContext.Build(model);
 
         WritePage(outDir, "index.html", "Overview", model, "index.html", "",

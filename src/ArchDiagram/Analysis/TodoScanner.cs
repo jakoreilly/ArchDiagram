@@ -71,7 +71,7 @@ public static partial class TodoScanner
         return result;
     }
 
-    // F6: pull a leading/trailing "(name)" or "#123" out of the marker text so the debt
+    // Pull a leading/trailing "(name)" or "#123" out of the marker text so the debt
     // list can attribute it. Returns (attribution, text-without-attribution).
     private static (string Author, string Text) ExtractAuthorOrTicket(string text)
     {

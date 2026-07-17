@@ -8,9 +8,9 @@ using ArchDiagram.Site;
 namespace ArchDiagram.Cli;
 
 /// <summary>The four things <c>archdiagram</c> can do, one method each — extracted from
-/// Program.cs's top-level statements (see plan.md Phase 4b), which had synthesized a single
-/// "&lt;main&gt;" member summing cognitive complexity across all four verbs at once. Each
-/// method here is independently scored by the self-scan instead.</summary>
+/// Program.cs's top-level statements, which had synthesized a single "&lt;main&gt;" member
+/// summing cognitive complexity across all four verbs at once. Each method here is
+/// independently scored by the self-scan instead.</summary>
 internal static class Verbs
 {
     /// <summary>Usage: archdiagram --landscape &lt;parent-dir&gt; [--out &lt;dir&gt;] [--no-open]

@@ -5,8 +5,7 @@ using ArchDiagram.Site;
 namespace ArchDiagram.Diff;
 
 /// <summary>Writes a single self-contained HTML report for a <see cref="ModelDiff.Result"/>,
-/// reusing the same page shell and component set as the main site (no new CSS selectors —
-/// see plan.md Phase 6).</summary>
+/// reusing the same page shell and component set as the main site (no new CSS selectors).</summary>
 public static class DiffReport
 {
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);

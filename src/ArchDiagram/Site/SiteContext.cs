@@ -6,7 +6,7 @@ namespace ArchDiagram.Site;
 /// built exactly once per site generation. Field values equal the old per-page computations
 /// exactly (same iteration order over model.FileDependencies / model.Calls / model.Files), so
 /// swapping a page over to <see cref="SiteContext"/> is a pure performance change — no output
-/// changes. See plan.md Phase 1.</summary>
+/// changes.</summary>
 public sealed class SiteContext
 {
     public required ProjectModel Model { get; init; }

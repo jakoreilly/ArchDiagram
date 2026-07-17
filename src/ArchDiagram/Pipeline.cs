@@ -29,7 +29,8 @@ public static class Pipeline
 
     /// <summary>Everything <see cref="AnalyzeOne"/> learns about a single file. No shared
     /// mutable state — safe to compute on any thread. The caller assigns the slug and merges
-    /// diagnostics/LOC serially afterward (see Constraint 1 in plan.md: determinism).</summary>
+    /// diagnostics/LOC serially afterward, since slug de-duplication and diagnostic order both
+    /// depend on processing entries in their original (sorted) order.</summary>
     private readonly record struct FileResult(FileNode NodeNoSlug, string Language, int Loc, List<string> Diagnostics);
 
     public static ProjectModel BuildModel(CliOptions options)
@@ -95,10 +96,11 @@ public static class Pipeline
     }
 
     /// <summary>Pure per-file analysis: read + parse one file and produce everything a
-    /// <see cref="FileNode"/> needs except its slug (assigned serially — see Constraint 1
-    /// in plan.md). Touches no shared mutable state, so it is safe to call from any thread;
-    /// this is also the exact seam a future incremental cache would memoise on
-    /// <c>(entry.AbsPath, mtime, size)</c> — do not inline it back into the loop.</summary>
+    /// <see cref="FileNode"/> needs except its slug (assigned serially, since slug
+    /// de-duplication depends on processing order). Touches no shared mutable state, so it
+    /// is safe to call from any thread; this is also the exact seam a future incremental
+    /// cache would memoise on <c>(entry.AbsPath, mtime, size)</c> — do not inline it back
+    /// into the loop.</summary>
     private static FileResult AnalyzeOne(FileEntry entry, Analyzers a, AuthoredDescriptions authored)
     {
         var localDiagnostics = new List<string>();

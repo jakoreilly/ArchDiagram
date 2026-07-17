@@ -20,6 +20,6 @@ public sealed record Diagram(string Mermaid, Dictionary<string, string> Tooltips
 
     /// <summary>Alias -&gt; neighbour aliases (both directions), for the client-side hover
     /// flow-path highlight (site.js). Additive — empty for any Diagram built before this
-    /// field existed. See plan.md Phase 5.</summary>
+    /// field existed.</summary>
     public Dictionary<string, List<string>> Adjacency { get; init; } = [];
 }

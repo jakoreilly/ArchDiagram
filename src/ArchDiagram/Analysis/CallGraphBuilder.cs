@@ -35,7 +35,7 @@ public static class CallGraphBuilder
     }
 
     /// <summary>name -> declaring methods across the whole scanned set, each with its legal
-    /// argument range so optional/params/named-arg calls still match (B6).</summary>
+    /// argument range so optional/params/named-arg calls still match.</summary>
     private static Dictionary<string, List<Decl>> BuildDeclaredIndex(IReadOnlyList<FileNode> files)
     {
         var declared = new Dictionary<string, List<Decl>>(StringComparer.Ordinal);

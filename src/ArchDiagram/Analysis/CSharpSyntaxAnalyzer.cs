@@ -64,7 +64,7 @@ public sealed class CSharpSyntaxAnalyzer : ILanguageAnalyzer
                 var sig = $"{c.Identifier.Text}({string.Join(", ", c.ParameterList.Parameters.Select(p => p.Type?.ToString() ?? "?"))}) (constructor)";
                 methods.Add(BuildMethod(c.Identifier.Text, c.ParameterList.Parameters.Count, sig, c));
             }
-            // B5: operators/conversions carry real logic too.
+            // Operators/conversions carry real logic too.
             foreach (var op in typeDecl.Members.OfType<OperatorDeclarationSyntax>())
             {
                 methods.Add(BuildMethod($"operator {op.OperatorToken.Text}", op.ParameterList.Parameters.Count,
@@ -75,8 +75,9 @@ public sealed class CSharpSyntaxAnalyzer : ILanguageAnalyzer
                 methods.Add(BuildMethod($"operator {op.Type}", op.ParameterList.Parameters.Count,
                     $"operator {op.Type}(...)", op));
             }
-            // B5: expression-bodied / accessor-bodied properties & indexers hold invocations
-            // and branching. Auto-properties (no executable code) are listed via F2 only.
+            // Expression-bodied / accessor-bodied properties & indexers hold invocations and
+            // branching, so they're also recorded as methods. Auto-properties (no executable
+            // code) are only listed below as plain properties.
             foreach (var p in typeDecl.Members.OfType<BasePropertyDeclarationSyntax>())
             {
                 var pname = PropertyName(p);
@@ -109,7 +110,7 @@ public sealed class CSharpSyntaxAnalyzer : ILanguageAnalyzer
         };
     }
 
-    // B5: top-level statements (Program.cs) declare no type, so their invocations and
+    // Top-level statements (Program.cs) declare no type, so their invocations and
     // complexity were invisible. Synthesize a "<top-level>" type with a "<main>" member.
     // Returns null when the file has no top-level statements (the common case).
     private static Graph.TypeInfo? BuildTopLevelType(CompilationUnitSyntax root)
@@ -151,8 +152,8 @@ public sealed class CSharpSyntaxAnalyzer : ILanguageAnalyzer
     {
         var pl = (decl as BaseMethodDeclarationSyntax)?.ParameterList;
         var (min, max) = ArityRange(pl, arity);
-        // Single tree walk for cyclomatic + cognitive + invocations (previously 3 separate
-        // traversals of the same body — see plan.md Phase 3 item 1).
+        // Single tree walk for cyclomatic + cognitive + invocations, instead of 3 separate
+        // traversals of the same body.
         var (cyclomatic, cognitive, invocations) = ComplexityMetrics.ComputeAll(decl);
         return new()
         {
@@ -173,7 +174,7 @@ public sealed class CSharpSyntaxAnalyzer : ILanguageAnalyzer
 
     /// <summary>Legal call-argument range for a parameter list: min = required params
     /// (no default, not <c>params</c>), max = total, or int.MaxValue when the last is
-    /// <c>params</c>. Lets the call graph match optional/params/named-arg calls (B6).</summary>
+    /// <c>params</c>. Lets the call graph match optional/params/named-arg calls.</summary>
     private static (int Min, int Max) ArityRange(ParameterListSyntax? pl, int arity)
     {
         if (pl is null) { return (arity, arity); }

@@ -292,7 +292,7 @@ table.matrix-legend td:nth-child(2) { word-break: break-word; }
 .diagram-trim { margin: 0 0 .5rem; padding: .4rem .6rem; border-left: 3px solid var(--warn, #b7791f);
   background: color-mix(in srgb, var(--warn, #b7791f) 10%, transparent); border-radius: 6px; }
 
-/* ---- Diagram flow-path highlight + jump-to-node (Phase 5) ---- */
+/* ---- Diagram flow-path highlight + jump-to-node ---- */
 .diagram-find { min-width: 160px; }
 .path-focus .node.path-dim,
 .path-focus .path-dim { opacity: .18; transition: opacity .12s; }

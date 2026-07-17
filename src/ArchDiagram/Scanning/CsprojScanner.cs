@@ -57,7 +57,7 @@ public static class CsprojScanner
     }
 
     /// <summary>Prefix (root-relative folder) of each project, longest first, so a .cs file
-    /// nested under two projects is attributed only to the nearest-enclosing one (B10).</summary>
+    /// nested under two projects is attributed only to the nearest-enclosing one.</summary>
     private static List<(string Id, string Prefix)> BuildProjectPrefixes(string root, List<FileEntry> csprojFiles) =>
         csprojFiles
             .Select(f =>
@@ -110,7 +110,7 @@ public static class CsprojScanner
         return (refs, packages, packageRefs, tfm);
     }
 
-    /// <summary>Connection strings from the files a project owns (nearest-enclosing, B10) — C#
+    /// <summary>Connection strings from the files a project owns (nearest-enclosing) — C#
     /// source AND the config where real services keep them (appsettings*.json, web.config/
     /// app.config). See IsConnStringSource.</summary>
     private static List<DbUse> ScanConnectionStrings(List<FileEntry> ownedFiles)

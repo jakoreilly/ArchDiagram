@@ -8,9 +8,9 @@ namespace ArchDiagram.Site;
 /// Dependencies pages (ArchDiagram.Site.Pages) AND the Markdown/wiki exporters
 /// (ArchDiagram.Site), which is exactly why this lives in ArchDiagram.Site rather than
 /// ArchDiagram.Site.Pages: putting it in Pages would make the exporters (a lower/sibling
-/// layer) depend upward into Pages, the same against-the-grain shape Phase 3 removed from
-/// SiteGenerator. TreemapRenderer.cs is the existing precedent for a diagram builder living
-/// here for the same reason.</summary>
+/// layer) depend upward into Pages, breaking the Stable Dependencies Principle the same
+/// way SiteGenerator once did before it moved to the root namespace. TreemapRenderer.cs is
+/// the existing precedent for a diagram builder living here for the same reason.</summary>
 public static class ArchitectureDiagrams
 {
     public static Diagram BuildProjectDiagram(ProjectModel model, int maxNodes)
