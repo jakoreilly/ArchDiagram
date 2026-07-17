@@ -57,6 +57,8 @@ public static class Glossary
     /// (so a typo degrades to nothing rather than a dead button).</summary>
     public static string Info(string term) =>
         Terms.ContainsKey(term)
-            ? $"<button class=\"explain\" type=\"button\" data-term=\"{Html.Encode(term)}\" aria-label=\"Explain this term\">&#9432;</button>"
+            // The glyph is a CSS-drawn circle (see .explain) rather than U+24D8 ⓘ, which is
+            // absent from Segoe UI and other common UI fonts and renders as blank/tofu there.
+            ? $"<button class=\"explain\" type=\"button\" data-term=\"{Html.Encode(term)}\" aria-label=\"Explain this term\"><span aria-hidden=\"true\">i</span></button>"
             : "";
 }
