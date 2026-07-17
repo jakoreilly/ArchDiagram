@@ -13,14 +13,20 @@ namespace ArchDiagram.Site;
 /// an upload later — but no publishing happens here (fully offline).</summary>
 public static class WikiExporter
 {
-    public static void Write(ProjectModel model, string dir, int maxNodes, string generatedOn, bool includeComplexity)
+    public static void Write(ProjectModel model, string dir, int maxNodes, string generatedOn, bool includeComplexity) =>
+        Write(SiteContext.Build(model), dir, maxNodes, generatedOn, includeComplexity);
+
+    /// <summary>Reuses the fan-in/fan-out indexes already computed in <paramref name="ctx"/>
+    /// for the hotspots page instead of rescanning model.FileDependencies a second time.</summary>
+    public static void Write(SiteContext ctx, string dir, int maxNodes, string generatedOn, bool includeComplexity)
     {
+        var model = ctx.Model;
         Directory.CreateDirectory(dir);
         var utf8 = new UTF8Encoding(false);
         File.WriteAllText(Path.Combine(dir, "overview.xhtml"),
             Document($"{model.RootName} — Architecture", RenderOverview(model, maxNodes, generatedOn)), utf8);
         File.WriteAllText(Path.Combine(dir, "hotspots.xhtml"),
-            Document($"{model.RootName} — Hotspots", RenderHotspots(model, includeComplexity)), utf8);
+            Document($"{model.RootName} — Hotspots", RenderHotspots(ctx, includeComplexity)), utf8);
         File.WriteAllText(Path.Combine(dir, "README.md"),
             RenderReadme(model, includeComplexity), utf8);
     }
@@ -97,16 +103,16 @@ public static class WikiExporter
     }
 
     /// <summary>Storage-format body for the hotspots/metrics page.</summary>
-    public static string RenderHotspots(ProjectModel model, bool includeComplexity)
+    public static string RenderHotspots(ProjectModel model, bool includeComplexity) =>
+        RenderHotspots(SiteContext.Build(model), includeComplexity);
+
+    /// <summary>Reuses the fan-in/fan-out indexes already computed in <paramref name="ctx"/>.</summary>
+    public static string RenderHotspots(SiteContext ctx, bool includeComplexity)
     {
-        var bySlug = model.Files.ToDictionary(f => f.Slug, StringComparer.Ordinal);
-        var fanIn = new Dictionary<string, int>(StringComparer.Ordinal);
-        var fanOut = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var e in model.FileDependencies.Where(e => e.ToSlug.Length > 0))
-        {
-            fanIn[e.ToSlug] = fanIn.GetValueOrDefault(e.ToSlug) + 1;
-            fanOut[e.FromSlug] = fanOut.GetValueOrDefault(e.FromSlug) + 1;
-        }
+        var model = ctx.Model;
+        var bySlug = ctx.BySlug;
+        var fanIn = ctx.FanIn;
+        var fanOut = ctx.FanOut;
 
         var sb = new StringBuilder();
         sb.Append("<h2>Most depended-on files (fan-in)</h2>");
@@ -200,8 +206,8 @@ still readable and copyable. All tables render regardless.
     private static void Row(StringBuilder sb, string metric, string value) =>
         sb.Append($"<tr><td>{E(metric)}</td><td>{E(value)}</td></tr>");
 
-    private static void RankTable(StringBuilder sb, Dictionary<string, int> counts,
-        Dictionary<string, FileNode> bySlug, string verb)
+    private static void RankTable(StringBuilder sb, IReadOnlyDictionary<string, int> counts,
+        IReadOnlyDictionary<string, FileNode> bySlug, string verb)
     {
         sb.Append($"<table><tbody><tr><th>File</th><th>{E(verb)}</th></tr>");
         foreach (var (slug, count) in counts.OrderByDescending(kv => kv.Value).Take(15))

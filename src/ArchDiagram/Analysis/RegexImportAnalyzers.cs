@@ -43,7 +43,7 @@ public abstract class RegexImportAnalyzer : ILanguageAnalyzer
 public sealed class CSharpUsingAnalyzer : RegexImportAnalyzer
 {
     private static readonly Regex Using = new(@"^\s*(?:global\s+)?using\s+(?:static\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*;",
-        RegexOptions.Multiline, Timeout);
+        RegexOptions.Multiline | RegexOptions.Compiled, Timeout);
 
     public override string Language => "C#";
     public override bool CanHandle(string extension) => extension is ".cs";
@@ -54,9 +54,9 @@ public sealed class CSharpUsingAnalyzer : RegexImportAnalyzer
 public sealed class TsJsImportAnalyzer : RegexImportAnalyzer
 {
     private static readonly Regex EsImport = new(@"^\s*(?:import|export)\s+(?:[^'""]*?\s+from\s+)?['""]([^'""]+)['""]",
-        RegexOptions.Multiline, Timeout);
+        RegexOptions.Multiline | RegexOptions.Compiled, Timeout);
     private static readonly Regex Require = new(@"require\s*\(\s*['""]([^'""]+)['""]\s*\)",
-        RegexOptions.None, Timeout);
+        RegexOptions.Compiled, Timeout);
 
     public override string Language => "TypeScript/JavaScript";
     public override bool CanHandle(string extension) => extension is ".ts" or ".tsx" or ".js" or ".jsx" or ".mjs" or ".cjs";
@@ -67,7 +67,7 @@ public sealed class TsJsImportAnalyzer : RegexImportAnalyzer
 public sealed class PythonImportAnalyzer : RegexImportAnalyzer
 {
     private static readonly Regex Import = new(@"^\s*(?:from\s+([A-Za-z_][A-Za-z0-9_.]*)\s+import|import\s+([A-Za-z_][A-Za-z0-9_.]*))",
-        RegexOptions.Multiline, Timeout);
+        RegexOptions.Multiline | RegexOptions.Compiled, Timeout);
 
     public override string Language => "Python";
     public override bool CanHandle(string extension) => extension is ".py";
@@ -77,14 +77,76 @@ public sealed class PythonImportAnalyzer : RegexImportAnalyzer
 public sealed class PowerShellImportAnalyzer : RegexImportAnalyzer
 {
     private static readonly Regex DotSource = new(@"^\s*\.\s+['""]?(\$?[^\s'""#]+\.ps1)['""]?",
-        RegexOptions.Multiline, Timeout);
+        RegexOptions.Multiline | RegexOptions.Compiled, Timeout);
     private static readonly Regex ImportModule = new(@"(?im)^\s*(?:Import-Module|using\s+module)\s+['""]?([^\s'""#;]+)['""]?",
-        RegexOptions.None, Timeout);
+        RegexOptions.Compiled, Timeout);
 
     public override string Language => "PowerShell";
     public override bool CanHandle(string extension) => extension is ".ps1" or ".psm1" or ".psd1";
     protected override IEnumerable<string> FindImports(string content) =>
         MatchGroup1(DotSource, content).Concat(MatchGroup1(ImportModule, content));
+}
+
+public sealed class GoImportAnalyzer : RegexImportAnalyzer
+{
+    // Matches both `import "fmt"` and each quoted path inside a grouped
+    // `import ( "a"\n "b" )` block — one match per quoted string on its own line.
+    private static readonly Regex Import = new(@"^\s*(?:import\s+)?""([^""]+)""",
+        RegexOptions.Multiline | RegexOptions.Compiled, Timeout);
+
+    public override string Language => "Go";
+    public override bool CanHandle(string extension) => extension is ".go";
+    protected override IEnumerable<string> FindImports(string content) => MatchGroup1(Import, content);
+}
+
+public sealed class JavaImportAnalyzer : RegexImportAnalyzer
+{
+    private static readonly Regex Import = new(@"^\s*import\s+(?:static\s+)?([\w.]+)(?:\.\*)?\s*;",
+        RegexOptions.Multiline | RegexOptions.Compiled, Timeout);
+
+    public override string Language => "Java";
+    public override bool CanHandle(string extension) => extension is ".java";
+    protected override IEnumerable<string> FindImports(string content) => MatchGroup1(Import, content);
+}
+
+public sealed class RustImportAnalyzer : RegexImportAnalyzer
+{
+    private static readonly Regex Use = new(@"^\s*(?:pub\s+)?use\s+([\w:]+)",
+        RegexOptions.Multiline | RegexOptions.Compiled, Timeout);
+
+    public override string Language => "Rust";
+    public override bool CanHandle(string extension) => extension is ".rs";
+    protected override IEnumerable<string> FindImports(string content) => MatchGroup1(Use, content);
+}
+
+public sealed class RubyImportAnalyzer : RegexImportAnalyzer
+{
+    private static readonly Regex Require = new(@"^\s*require(?:_relative)?\s+['""]([^'""]+)['""]",
+        RegexOptions.Multiline | RegexOptions.Compiled, Timeout);
+
+    public override string Language => "Ruby";
+    public override bool CanHandle(string extension) => extension is ".rb";
+    protected override IEnumerable<string> FindImports(string content) => MatchGroup1(Require, content);
+}
+
+public sealed class PhpImportAnalyzer : RegexImportAnalyzer
+{
+    private static readonly Regex Use = new(@"^\s*use\s+([\w\\]+)",
+        RegexOptions.Multiline | RegexOptions.Compiled, Timeout);
+
+    public override string Language => "PHP";
+    public override bool CanHandle(string extension) => extension is ".php";
+    protected override IEnumerable<string> FindImports(string content) => MatchGroup1(Use, content);
+}
+
+public sealed class CppImportAnalyzer : RegexImportAnalyzer
+{
+    private static readonly Regex Include = new(@"^\s*#\s*include\s*[<""]([^>""]+)[>""]",
+        RegexOptions.Multiline | RegexOptions.Compiled, Timeout);
+
+    public override string Language => "C/C++";
+    public override bool CanHandle(string extension) => extension is ".c" or ".cpp" or ".h" or ".hpp";
+    protected override IEnumerable<string> FindImports(string content) => MatchGroup1(Include, content);
 }
 
 /// <summary>Catch-all for languages/files we recognise but don't extract imports from.</summary>

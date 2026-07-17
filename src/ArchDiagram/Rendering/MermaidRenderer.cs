@@ -32,6 +32,7 @@ public static class MermaidRenderer
         var aliasById = new Dictionary<string, string>(StringComparer.Ordinal);
         var tooltips = new Dictionary<string, string>(StringComparer.Ordinal);
         var hrefs = new Dictionary<string, string>(StringComparer.Ordinal);
+        var adjacency = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var i = 0;
         foreach (var node in nodes)
         {
@@ -67,6 +68,14 @@ public static class MermaidRenderer
             {
                 sb.Append(from).Append(' ').Append(arrow).Append(' ').Append(to).Append('\n');
             }
+
+            // Undirected adjacency for the hover flow-path highlight (site.js): a node's
+            // "connections" for highlighting purposes run both ways along an edge.
+            if (from != to)
+            {
+                (adjacency.TryGetValue(from, out var af) ? af : adjacency[from] = []).Add(to);
+                (adjacency.TryGetValue(to, out var at) ? at : adjacency[to] = []).Add(from);
+            }
         }
 
         // Real (non-aggregate) nodes actually rendered; the collapsed aggregate node
@@ -76,6 +85,7 @@ public static class MermaidRenderer
         {
             ShownNodes = shown,
             TotalNodes = totalNodes > shown ? totalNodes : shown,
+            Adjacency = adjacency,
         };
     }
 

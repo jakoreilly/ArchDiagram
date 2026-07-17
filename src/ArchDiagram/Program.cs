@@ -41,6 +41,49 @@ if (args.Length > 0 && args[0] == "--landscape")
     return 0;
 }
 
+if (args.Length > 0 && args[0] == "--diff")
+{
+    // Usage: archdiagram --diff <old model.json> <new model.json> [--out <dir>] [--no-open]
+    if (args.Length < 3 || args[1].StartsWith("--") || args[2].StartsWith("--"))
+    {
+        Console.Error.WriteLine("error: --diff requires two model.json paths (old, then new).");
+        return 2;
+    }
+    var oldPath = Path.GetFullPath(args[1]);
+    var newPath = Path.GetFullPath(args[2]);
+    if (!File.Exists(oldPath)) { Console.Error.WriteLine($"error: '{oldPath}' not found."); return 2; }
+    if (!File.Exists(newPath)) { Console.Error.WriteLine($"error: '{newPath}' not found."); return 2; }
+
+    string? dOut = null;
+    var dOpen = true;
+    for (var i = 3; i < args.Length; i++)
+    {
+        if (args[i] == "--out" && i + 1 < args.Length) { dOut = args[++i]; }
+        else if (args[i] == "--no-open") { dOpen = false; }
+    }
+
+    ArchDiagram.Graph.ProjectModel oldModel, newModel;
+    try
+    {
+        oldModel = ArchDiagram.Rendering.ModelJsonReader.Read(oldPath);
+        newModel = ArchDiagram.Rendering.ModelJsonReader.Read(newPath);
+    }
+    catch (Exception ex) { Console.Error.WriteLine($"error: could not read model: {ex.Message}"); return 1; }
+
+    dOut = Path.GetFullPath(dOut ?? $"diff-{oldModel.RootName}-{newModel.RootName}", Directory.GetCurrentDirectory());
+    var diffResult = ArchDiagram.Diff.ModelDiff.Compute(oldModel, newModel);
+    var dIndex = ArchDiagram.Diff.DiffReport.Write(diffResult, dOut, DateTime.Now.ToString("yyyy-MM-dd"));
+    Console.Error.WriteLine($"archdiagram: diff written to {dOut} "
+        + $"({diffResult.AddedFiles.Count} added, {diffResult.RemovedFiles.Count} removed, {diffResult.ChangedFiles.Count} changed)");
+
+    if (dOpen)
+    {
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(dIndex) { UseShellExecute = true }); }
+        catch (Exception ex) { Console.Error.WriteLine($"archdiagram: could not auto-open the diff: {ex.Message}"); }
+    }
+    return 0;
+}
+
 if (args.Length > 0 && args[0] == "--from-model")
 {
     // Usage: archdiagram --from-model <model.json> [--out <dir>] [--no-open] [--no-wiki]
@@ -97,6 +140,13 @@ var indexPath = SiteGenerator.Generate(model, options.OutDir, options.MaxNodes, 
     options.ShowComplexity, options.ShowSnippets, options.Wiki);
 Console.Error.WriteLine($"archdiagram: site written to {options.OutDir}");
 
+if (options.SarifPath is not null)
+{
+    var sarifFullPath = Path.GetFullPath(options.SarifPath, Environment.CurrentDirectory);
+    ArchDiagram.Rendering.SarifWriter.Write(model, sarifFullPath);
+    Console.Error.WriteLine($"archdiagram: SARIF log written to {sarifFullPath}");
+}
+
 if (options.Open)
 {
     try
@@ -107,6 +157,20 @@ if (options.Open)
     {
         Console.Error.WriteLine($"archdiagram: could not auto-open the site: {ex.Message}");
     }
+}
+
+// CI gate: the site is written either way; a tripped gate only affects the exit code
+// (3, distinct from usage-error 2 and crash 1 — see CliOptions.FailOn).
+if (options.FailOn.Count > 0)
+{
+    var card = ArchDiagram.Analysis.ScorecardBuilder.Build(model);
+    var failedGates = ArchDiagram.Analysis.CiGate.Evaluate(options.FailOn, card);
+    if (failedGates.Count > 0)
+    {
+        foreach (var f in failedGates) { Console.Error.WriteLine($"archdiagram: gate failed — {f}"); }
+        return 3;
+    }
+    Console.Error.WriteLine($"archdiagram: all {options.FailOn.Count} gate(s) passed.");
 }
 
 return 0;

@@ -17,4 +17,9 @@ public sealed record Diagram(string Mermaid, Dictionary<string, string> Tooltips
     public int ShownNodes { get; init; }
     public int TotalNodes { get; init; }
     public bool Trimmed => TotalNodes > ShownNodes;
+
+    /// <summary>Alias -&gt; neighbour aliases (both directions), for the client-side hover
+    /// flow-path highlight (site.js). Additive — empty for any Diagram built before this
+    /// field existed. See plan.md Phase 5.</summary>
+    public Dictionary<string, List<string>> Adjacency { get; init; } = [];
 }

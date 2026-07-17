@@ -12,10 +12,12 @@ public static class GraphDataWriter
 {
     private const int MaxNodes = 2000, MaxEdges = 8000;
 
-    public static void Write(ProjectModel model, string path)
-    {
-        File.WriteAllText(path, BuildJson(model), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-    }
+    public static void Write(ProjectModel model, string path) => WriteJson(BuildJson(model), path);
+
+    /// <summary>Writes an already-built payload (see <see cref="SiteContext.GraphJson"/>) so the
+    /// full-site generation path serializes the graph once instead of once per consumer.</summary>
+    public static void WriteJson(string json, string path) =>
+        File.WriteAllText(path, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
     /// <summary>Builds the viewer payload as a JSON string. Written to graph.json for
     /// external tooling and embedded inline in graph.html so the graph works from

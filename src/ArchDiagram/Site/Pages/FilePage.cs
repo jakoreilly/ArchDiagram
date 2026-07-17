@@ -7,13 +7,20 @@ namespace ArchDiagram.Site.Pages;
 public static class FilePage
 {
     public static string Body(ProjectModel model, FileNode file, int maxNodes,
+        bool showComplexity = false, bool showSnippets = false) =>
+        Body(SiteContext.Build(model), file, maxNodes, showComplexity, showSnippets);
+
+    /// <summary>Reuses the site-wide slug/edge indexes in <paramref name="ctx"/> instead of
+    /// scanning model.FileDependencies/Calls from scratch for every file page.</summary>
+    public static string Body(SiteContext ctx, FileNode file, int maxNodes,
         bool showComplexity = false, bool showSnippets = false)
     {
-        var bySlug = model.Files.ToDictionary(f => f.Slug, StringComparer.Ordinal);
-        var incoming = model.FileDependencies.Where(e => e.ToSlug == file.Slug).ToList();
-        var outgoing = model.FileDependencies.Where(e => e.FromSlug == file.Slug).ToList();
-        var callsOut = model.Calls.Where(c => c.CallerSlug == file.Slug && c.CalleeSlug != file.Slug).ToList();
-        var callsIn = model.Calls.Where(c => c.CalleeSlug == file.Slug && c.CallerSlug != file.Slug).ToList();
+        var model = ctx.Model;
+        var bySlug = ctx.BySlug;
+        var incoming = ctx.IncomingDeps.GetValueOrDefault(file.Slug) ?? [];
+        var outgoing = ctx.OutgoingDeps.GetValueOrDefault(file.Slug) ?? [];
+        var callsOut = ctx.CallsOut.GetValueOrDefault(file.Slug) ?? [];
+        var callsIn = ctx.CallsIn.GetValueOrDefault(file.Slug) ?? [];
 
         var sb = new StringBuilder();
         var name = file.RelPath.Split('/')[^1];
@@ -200,7 +207,7 @@ public static class FilePage
         f is null ? "" : $"<a href=\"{f.Slug}.html\" title=\"{Html.Encode(f.Purpose)}\">{Html.Encode(f.RelPath)}</a>";
 
     private static Diagram BuildNeighbourDiagram(FileNode file, List<DepEdge> incoming, List<DepEdge> outgoing,
-        Dictionary<string, FileNode> bySlug, int maxNodes)
+        IReadOnlyDictionary<string, FileNode> bySlug, int maxNodes)
     {
         var nodes = new List<DiagramNode>
         {

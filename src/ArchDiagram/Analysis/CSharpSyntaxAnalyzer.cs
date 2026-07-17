@@ -138,6 +138,9 @@ public sealed class CSharpSyntaxAnalyzer : ILanguageAnalyzer
     {
         var pl = (decl as BaseMethodDeclarationSyntax)?.ParameterList;
         var (min, max) = ArityRange(pl, arity);
+        // Single tree walk for cyclomatic + cognitive + invocations (previously 3 separate
+        // traversals of the same body — see plan.md Phase 3 item 1).
+        var (cyclomatic, cognitive, invocations) = ComplexityMetrics.ComputeAll(decl);
         return new()
         {
             Name = name,
@@ -147,11 +150,11 @@ public sealed class CSharpSyntaxAnalyzer : ILanguageAnalyzer
             Signature = signature,
             Modifiers = (decl as MemberDeclarationSyntax)?.Modifiers.ToString() ?? "",
             XmlSummary = GetXmlSummary(decl),
-            Cyclomatic = ComplexityMetrics.Cyclomatic(decl),
-            Cognitive = ComplexityMetrics.Cognitive(decl),
+            Cyclomatic = cyclomatic,
+            Cognitive = cognitive,
             StartLine = LineOf(decl, first: true),
             EndLine = LineOf(decl, first: false),
-            Invocations = CollectInvocations(decl),
+            Invocations = invocations,
         };
     }
 
@@ -222,6 +225,12 @@ public sealed class CSharpSyntaxAnalyzer : ILanguageAnalyzer
         _ => "",
     };
 
+    private static readonly TimeSpan XmlSummaryRegexTimeout = TimeSpan.FromMilliseconds(200);
+    private static readonly System.Text.RegularExpressions.Regex XmlTag =
+        new(@"<[^>]+>", System.Text.RegularExpressions.RegexOptions.Compiled, XmlSummaryRegexTimeout);
+    private static readonly System.Text.RegularExpressions.Regex Whitespace =
+        new(@"\s+", System.Text.RegularExpressions.RegexOptions.Compiled, XmlSummaryRegexTimeout);
+
     private static string GetXmlSummary(SyntaxNode node)
     {
         var trivia = node.GetLeadingTrivia()
@@ -234,8 +243,12 @@ public sealed class CSharpSyntaxAnalyzer : ILanguageAnalyzer
 
         var text = string.Join(" ", summary.Content.Select(c => c.ToString()));
         text = text.Replace("///", " ");
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"<[^>]+>", " ");
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ").Trim();
+        try
+        {
+            text = XmlTag.Replace(text, " ");
+            text = Whitespace.Replace(text, " ").Trim();
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException) { text = text.Trim(); }
         return text;
     }
 }

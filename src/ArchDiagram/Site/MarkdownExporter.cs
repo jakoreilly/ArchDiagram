@@ -9,8 +9,15 @@ namespace ArchDiagram.Site;
 /// so the analysis can be committed straight into the documented repo.</summary>
 public static class MarkdownExporter
 {
-    public static void Write(ProjectModel model, string path, int maxNodes, string generatedOn)
+    public static void Write(ProjectModel model, string path, int maxNodes, string generatedOn) =>
+        Write(SiteContext.Build(model), path, maxNodes, generatedOn);
+
+    /// <summary>Reuses the scorecard, metrics and importance ranking already computed in
+    /// <paramref name="ctx"/> instead of recomputing them (each was previously built a
+    /// second time here, duplicating the HTML page's work).</summary>
+    public static void Write(SiteContext ctx, string path, int maxNodes, string generatedOn)
     {
+        var model = ctx.Model;
         var sb = new StringBuilder();
         // First-party LOC (excludes tests and vendored bundles) so the figure matches the site.
         var totalLoc = Analysis.CodebaseStats.FirstPartyLoc(model);
@@ -43,7 +50,7 @@ public static class MarkdownExporter
         sb.AppendLine($"| Databases | {model.Databases.Count:N0} |");
         sb.AppendLine();
 
-        AppendScorecard(sb, model);
+        AppendScorecard(sb, ctx.Scorecard);
 
         if (model.LanguageLoc.Count > 0)
         {
@@ -86,7 +93,9 @@ public static class MarkdownExporter
         }
 
         // Key files: ranked by overall importance (fan-in, calls, entry points, size).
-        var key = Analysis.ImportanceScorer.Rank(model, 10);
+        // ctx.Ranked is cached at take=20; slicing to 10 here reproduces Rank(model, 10)
+        // exactly since ordering doesn't depend on `take`.
+        var key = ctx.Ranked.Take(10).ToList();
         if (key.Count > 0)
         {
             sb.AppendLine("## Key files (start here)");
@@ -103,7 +112,7 @@ public static class MarkdownExporter
         }
 
         // Architecture metrics (module level, heuristic).
-        var metrics = Analysis.ArchitectureMetrics.Compute(model);
+        var metrics = ctx.Metrics;
         if (metrics.Modules.Count >= 2)
         {
             sb.AppendLine("## Architecture metrics");
@@ -133,9 +142,8 @@ public static class MarkdownExporter
         File.WriteAllText(path, sb.ToString(), new UTF8Encoding(false));
     }
 
-    private static void AppendScorecard(StringBuilder sb, ProjectModel model)
+    private static void AppendScorecard(StringBuilder sb, Analysis.ScorecardBuilder.Card card)
     {
-        var card = Analysis.ScorecardBuilder.Build(model);
         var overall = card.Overall switch
         {
             Analysis.ScorecardBuilder.Status.Ok => "PASS",

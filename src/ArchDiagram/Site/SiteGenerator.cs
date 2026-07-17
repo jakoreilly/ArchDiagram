@@ -18,9 +18,14 @@ public static class SiteGenerator
         Directory.CreateDirectory(Path.Combine(outDir, "files"));
         SiteAssets.CopyTo(outDir);
 
+        // Computed once: fan-in/out, call indexes, scorecard, metrics, importance ranking and
+        // the 3D graph payload. Every page below reuses this instead of recomputing its own
+        // copy (see plan.md Phase 1 — SiteContext).
+        var ctx = SiteContext.Build(model);
+
         WritePage(outDir, "index.html", "Overview", model, "index.html", "",
             PageTemplate.Crumbs((null, "Overview")),
-            IndexPage.Body(model, maxNodes, generatedOn));
+            IndexPage.Body(ctx, maxNodes, generatedOn));
 
         WritePage(outDir, "brief.html", "System Brief", model, "brief.html", "",
             PageTemplate.Crumbs(("index.html", "Overview"), (null, "System Brief")),
@@ -48,7 +53,7 @@ public static class SiteGenerator
 
         WritePage(outDir, "metrics.html", "Architecture Metrics", model, "metrics.html", "",
             PageTemplate.Crumbs(("index.html", "Overview"), (null, "Metrics")),
-            MetricsPage.Body(model));
+            MetricsPage.Body(ctx));
 
         WritePage(outDir, "scorecard.html", "Architecture Scorecard", model, "scorecard.html", "",
             PageTemplate.Crumbs(("index.html", "Overview"), (null, "Scorecard")),
@@ -80,26 +85,26 @@ public static class SiteGenerator
 
         WritePage(outDir, "hotspots.html", "Hotspots & Metrics", model, "hotspots.html", "",
             PageTemplate.Crumbs(("index.html", "Overview"), (null, "Hotspots")),
-            HotspotsPage.Body(model, showComplexity));
+            HotspotsPage.Body(ctx, showComplexity));
 
         WritePage(outDir, "graph.html", "Graph (3D)", model, "graph.html", "",
             PageTemplate.Crumbs(("index.html", "Overview"), (null, "Graph (3D)")),
-            GraphPage.Body(model));
+            GraphPage.Body(model, ctx.GraphJson));
 
         foreach (var file in model.Files)
         {
             var crumbs = PageTemplate.Crumbs(("../index.html", "Overview"), ("../structure.html", "Structure"), (null, file.RelPath));
-            var html = PageTemplate.Render(file.RelPath, model.RootName, "", "../", crumbs, FilePage.Body(model, file, maxNodes, showComplexity, showSnippets), navItems: null, sourceLink: model.SourceLink);
+            var html = PageTemplate.Render(file.RelPath, model.RootName, "", "../", crumbs, FilePage.Body(ctx, file, maxNodes, showComplexity, showSnippets), navItems: null, sourceLink: model.SourceLink);
             File.WriteAllText(Path.Combine(outDir, "files", file.Slug + ".html"), html, Utf8NoBom);
         }
 
         ModelJsonWriter.Write(model, Path.Combine(outDir, "model.json"));
-        GraphDataWriter.Write(model, Path.Combine(outDir, "graph.json"));
+        GraphDataWriter.WriteJson(ctx.GraphJson, Path.Combine(outDir, "graph.json"));
         SearchIndexWriter.Write(model, Path.Combine(outDir, "assets", "search-index.js"));
-        MarkdownExporter.Write(model, Path.Combine(outDir, "ARCHITECTURE.md"), maxNodes, generatedOn);
+        MarkdownExporter.Write(ctx, Path.Combine(outDir, "ARCHITECTURE.md"), maxNodes, generatedOn);
         if (wiki)
         {
-            WikiExporter.Write(model, Path.Combine(outDir, "wiki"), maxNodes, generatedOn, showComplexity);
+            WikiExporter.Write(ctx, Path.Combine(outDir, "wiki"), maxNodes, generatedOn, showComplexity);
         }
         return Path.Combine(outDir, "index.html");
     }

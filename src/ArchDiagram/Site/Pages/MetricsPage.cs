@@ -10,12 +10,18 @@ namespace ArchDiagram.Site.Pages;
 /// and heuristic (module level, syntax-only analysis).</summary>
 public static class MetricsPage
 {
-    public static string Body(ProjectModel model)
+    public static string Body(ProjectModel model) => Body(SiteContext.Build(model));
+
+    /// <summary>Reuses the metrics computed once in <paramref name="ctx"/> instead of
+    /// recomputing <see cref="ArchitectureMetrics.Compute"/> (previously run twice per
+    /// generation: here and again in MarkdownExporter).</summary>
+    public static string Body(SiteContext ctx)
     {
+        var model = ctx.Model;
         var sb = new StringBuilder();
         sb.Append("<h1>Architecture Metrics</h1>");
 
-        var r = ArchitectureMetrics.Compute(model);
+        var r = ctx.Metrics;
         if (r.Modules.Count < 2)
         {
             sb.Append("<div class=\"panel empty-state\"><div class=\"big\">📐</div>"

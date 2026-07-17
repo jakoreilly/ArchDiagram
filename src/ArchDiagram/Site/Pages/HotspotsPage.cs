@@ -8,24 +8,18 @@ namespace ArchDiagram.Site.Pages;
 /// Everything links back into the per-file pages.</summary>
 public static class HotspotsPage
 {
-    public static string Body(ProjectModel model, bool showComplexity = false)
+    public static string Body(ProjectModel model, bool showComplexity = false) =>
+        Body(SiteContext.Build(model), showComplexity);
+
+    /// <summary>Reuses the site-wide fan-in/fan-out/external indexes in <paramref name="ctx"/>
+    /// instead of rescanning model.FileDependencies.</summary>
+    public static string Body(SiteContext ctx, bool showComplexity = false)
     {
-        var bySlug = model.Files.ToDictionary(f => f.Slug, StringComparer.Ordinal);
-        var fanIn = new Dictionary<string, int>(StringComparer.Ordinal);
-        var fanOut = new Dictionary<string, int>(StringComparer.Ordinal);
-        var external = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var e in model.FileDependencies)
-        {
-            if (e.ToSlug.Length > 0)
-            {
-                fanIn[e.ToSlug] = fanIn.GetValueOrDefault(e.ToSlug) + 1;
-                fanOut[e.FromSlug] = fanOut.GetValueOrDefault(e.FromSlug) + 1;
-            }
-            else if (e.ExternalTarget.Length > 0)
-            {
-                external[e.ExternalTarget] = external.GetValueOrDefault(e.ExternalTarget) + 1;
-            }
-        }
+        var model = ctx.Model;
+        var bySlug = ctx.BySlug;
+        var fanIn = ctx.FanIn;
+        var fanOut = ctx.FanOut;
+        var external = ctx.ExternalCounts;
 
         // Marker headline counts are first-party (test files often embed marker-shaped strings
         // as fixture data — e.g. TodoScannerTests). Test markers still appear in the table,
@@ -268,7 +262,7 @@ Only C# methods are scored.</p>
         sb.Append($"<div class=\"tile\"><div class=\"num\">{num}</div><div class=\"lbl\">{Html.Encode(label)}</div></div>");
 
     private static void RankTable(StringBuilder sb, string title, string lede,
-        Dictionary<string, int> counts, Dictionary<string, FileNode> bySlug, string verb)
+        IReadOnlyDictionary<string, int> counts, IReadOnlyDictionary<string, FileNode> bySlug, string verb)
     {
         sb.Append($"<div><h2>{title}</h2><p class=\"lede\" style=\"font-size:.88rem\">{Html.Encode(lede)}</p>");
         sb.Append("<table class=\"grid\"><thead><tr><th>File</th><th>Links</th></tr></thead><tbody>");

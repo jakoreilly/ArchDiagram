@@ -21,13 +21,21 @@ public sealed record CliOptions
     public string SourceLinkRef { get; init; } = "main";
     /// <summary>Optional path to an authored descriptions sidecar; null probes the source root.</summary>
     public string? DescriptionsPath { get; init; }
+    /// <summary>CI gates to check after generation: "cycles" | "layering" | "secrets" |
+    /// "drift" | "scorecard" (comma-separated). A tripped gate exits 3 (distinct from usage
+    /// error 2 and crash 1) — the site is still written. Empty = no CI gating.</summary>
+    public List<string> FailOn { get; init; } = [];
+    /// <summary>Optional path to write a SARIF 2.1.0 log of the refactoring backlog + any
+    /// failed scorecard signal (for code-scanning dashboards); null = don't write one.</summary>
+    public string? SarifPath { get; init; }
 
     public static CliOptions? Parse(string[] args, out int exitCode)
     {
         exitCode = 0;
         if (args.Length == 0 || args[0] is "-h" or "--help")
         {
-            Console.Error.WriteLine("Usage: archdiagram <path-to-project> [--out <dir>] [--no-open] [--max-nodes <n>] [--exclude <dirname>]... [--no-complexity] [--no-snippets] [--no-wiki] [--source-link-type <github|gitlab|local>] [--source-link-base <url>] [--source-link-ref <branch>] [--descriptions <path>]");
+            Console.Error.WriteLine("Usage: archdiagram <path-to-project> [--out <dir>] [--no-open] [--max-nodes <n>] [--exclude <dirname>]... [--no-complexity] [--no-snippets] [--no-wiki] [--source-link-type <github|gitlab|local>] [--source-link-base <url>] [--source-link-ref <branch>] [--descriptions <path>] [--fail-on <gate>[,<gate>...]] [--sarif <path>]");
+            Console.Error.WriteLine($"  --fail-on gates: {string.Join(", ", Analysis.CiGate.KnownGates.Keys.OrderBy(k => k, StringComparer.Ordinal))}. On a tripped gate the site is still written and the process exits 3 (2 = usage error, 1 = crash).");
             exitCode = args.Length == 0 ? 2 : 0;
             return null;
         }
@@ -51,6 +59,8 @@ public sealed record CliOptions
         var slBase = "";
         var slRef = "main";
         string? descriptionsPath = null;
+        string? sarifPath = null;
+        var failOn = new List<string>();
         for (var i = 1; i < args.Length; i++)
         {
             if (args[i] == "--out" && i + 1 < args.Length) { outDir = args[++i]; }
@@ -64,6 +74,20 @@ public sealed record CliOptions
             else if (args[i] == "--source-link-base" && i + 1 < args.Length) { slBase = args[++i]; }
             else if (args[i] == "--source-link-ref" && i + 1 < args.Length) { slRef = args[++i]; }
             else if (args[i] == "--descriptions" && i + 1 < args.Length) { descriptionsPath = args[++i]; }
+            else if (args[i] == "--sarif" && i + 1 < args.Length) { sarifPath = args[++i]; }
+            else if (args[i] == "--fail-on" && i + 1 < args.Length)
+            {
+                var requested = args[++i].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var unknown = requested.Where(g => !Analysis.CiGate.KnownGates.ContainsKey(g)).ToList();
+                if (unknown.Count > 0)
+                {
+                    Console.Error.WriteLine($"error: unknown --fail-on gate(s): {string.Join(", ", unknown)}. "
+                        + $"Valid gates: {string.Join(", ", Analysis.CiGate.KnownGates.Keys.OrderBy(k => k, StringComparer.Ordinal))}.");
+                    exitCode = 2;
+                    return null;
+                }
+                failOn.AddRange(requested);
+            }
             else
             {
                 Console.Error.WriteLine($"error: unknown argument '{args[i]}'.");
@@ -90,6 +114,8 @@ public sealed record CliOptions
             SourceLinkBase = slBase,
             SourceLinkRef = slRef,
             DescriptionsPath = descriptionsPath,
+            FailOn = failOn,
+            SarifPath = sarifPath,
         };
     }
 

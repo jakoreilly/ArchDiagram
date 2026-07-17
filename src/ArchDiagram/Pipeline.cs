@@ -17,9 +17,20 @@ public static class Pipeline
     internal static int CountLines(string content)
     {
         if (content.Length == 0) { return 0; }
-        var newlines = content.Count(c => c == '\n');
+        var newlines = content.AsSpan().Count('\n');
         return content[^1] == '\n' ? newlines : newlines + 1;
     }
+
+    /// <summary>Read-only, thread-safe analyzer set shared across every parallel
+    /// <see cref="AnalyzeOne"/> call — none of them mutate instance state.</summary>
+    private sealed record Analyzers(
+        CSharpSyntaxAnalyzer CSharp, CSharpUsingAnalyzer CSharpFallback,
+        List<ILanguageAnalyzer> Regex, KnownFileAnalyzer Known);
+
+    /// <summary>Everything <see cref="AnalyzeOne"/> learns about a single file. No shared
+    /// mutable state — safe to compute on any thread. The caller assigns the slug and merges
+    /// diagnostics/LOC serially afterward (see Constraint 1 in plan.md: determinism).</summary>
+    private readonly record struct FileResult(FileNode NodeNoSlug, string Language, int Loc, List<string> Diagnostics);
 
     public static ProjectModel BuildModel(CliOptions options)
     {
@@ -27,88 +38,32 @@ public static class Pipeline
         var entries = FileSystemScanner.Scan(options.SourcePath, options.Exclude, diagnostics);
         var authored = DescriptionsLoader.Load(options.DescriptionsPath, options.SourcePath, diagnostics);
 
-        var csharp = new CSharpSyntaxAnalyzer();
-        var csharpFallback = new CSharpUsingAnalyzer();
-        var regexAnalyzers = new List<ILanguageAnalyzer> { new TsJsImportAnalyzer(), new PythonImportAnalyzer(), new PowerShellImportAnalyzer() };
-        var known = new KnownFileAnalyzer();
+        var analyzers = new Analyzers(
+            new CSharpSyntaxAnalyzer(), new CSharpUsingAnalyzer(),
+            [
+                new TsJsImportAnalyzer(), new PythonImportAnalyzer(), new PowerShellImportAnalyzer(),
+                new GoImportAnalyzer(), new JavaImportAnalyzer(), new RustImportAnalyzer(),
+                new RubyImportAnalyzer(), new PhpImportAnalyzer(), new CppImportAnalyzer(),
+            ],
+            new KnownFileAnalyzer());
 
-        var files = new List<FileNode>();
+        // Parallel map: each file is read + analysed independently (CPU-bound Roslyn/regex
+        // work dominates at scale). No shared mutable state is touched here.
+        var results = new FileResult[entries.Count];
+        Parallel.For(0, entries.Count, idx => { results[idx] = AnalyzeOne(entries[idx], analyzers, authored); });
+
+        // Serial reduce — order-dependent shared state (Constraint 1: determinism).
+        // Slug de-duplication and diagnostic order both depend on processing entries in their
+        // original (sorted) order, so this pass must not run in parallel.
+        var files = new List<FileNode>(entries.Count);
         var usedSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var languageLoc = new Dictionary<string, int>(StringComparer.Ordinal);
-
-        foreach (var entry in entries)
+        foreach (var r in results)
         {
-            var language = KnownFileAnalyzer.LanguageByExtension.GetValueOrDefault(entry.Extension, "Other");
-
-            string content = "";
-            var loc = 0;
-            var analyzable = language != "Other" && entry.SizeBytes <= MaxAnalyzeBytes;
-            if (analyzable)
-            {
-                try
-                {
-                    content = File.ReadAllText(entry.AbsPath);
-                    loc = CountLines(content);
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    diagnostics.Add($"Could not read {entry.RelPath}: {ex.Message}");
-                    analyzable = false;
-                }
-            }
-            else if (language != "Other")
-            {
-                // Too big to parse, but still a known-language source: estimate LOC from
-                // size (deterministic) so it isn't dropped from totals and "largest files".
-                loc = (int)(entry.SizeBytes / EstimatedBytesPerLine);
-                diagnostics.Add($"Skipped deep analysis of {entry.RelPath} ({StructurePageBytes(entry.SizeBytes)} exceeds 1 MB limit); LOC estimated from size.");
-            }
-
-            FileFacts facts = new() { Language = language };
-            if (analyzable && content.Length > 0)
-            {
-                try
-                {
-                    if (csharp.CanHandle(entry.Extension)) { facts = csharp.Analyze(entry, content); }
-                    else
-                    {
-                        var analyzer = regexAnalyzers.FirstOrDefault(a => a.CanHandle(entry.Extension)) ?? known;
-                        facts = analyzer.Analyze(entry, content);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    diagnostics.Add($"Analysis failed for {entry.RelPath}: {ex.Message}");
-                    if (csharp.CanHandle(entry.Extension))
-                    {
-                        try { facts = csharpFallback.Analyze(entry, content); } catch { facts = new FileFacts { Language = language }; }
-                    }
-                }
-            }
-
-            var node = new FileNode
-            {
-                RelPath = entry.RelPath,
-                Slug = MakeSlug(entry.RelPath, usedSlugs),
-                Language = facts.Language,
-                SizeBytes = entry.SizeBytes,
-                Loc = loc,
-                IsTest = TestDetection.IsTest(entry.RelPath),
-                IsVendored = VendoredDetection.IsVendored(entry.RelPath),
-                Imports = facts.Imports,
-                Types = facts.Types,
-                Todos = analyzable && content.Length > 0 ? TodoScanner.Scan(content, facts.Language) : [],
-            };
-            PurposeHeuristics.Apply(node, content);
-            // Authored file description (from the sidecar) wins over the heuristic purpose.
-            if (authored.Files.TryGetValue(entry.RelPath, out var authoredPurpose))
-            {
-                node.Purpose = authoredPurpose;
-                node.PurposeSource = "authored";
-            }
+            diagnostics.AddRange(r.Diagnostics);
+            var node = r.NodeNoSlug with { Slug = MakeSlug(r.NodeNoSlug.RelPath, usedSlugs) };
             files.Add(node);
-
-            if (loc > 0) { languageLoc[facts.Language] = languageLoc.GetValueOrDefault(facts.Language) + loc; }
+            if (r.Loc > 0) { languageLoc[r.Language] = languageLoc.GetValueOrDefault(r.Language) + r.Loc; }
         }
 
         var projects = CsprojScanner.Scan(options.SourcePath, entries, diagnostics);
@@ -137,6 +92,86 @@ public static class Pipeline
                 ? null
                 : new SourceLink { Type = options.SourceLinkType, Base = options.SourceLinkBase, Ref = options.SourceLinkRef },
         };
+    }
+
+    /// <summary>Pure per-file analysis: read + parse one file and produce everything a
+    /// <see cref="FileNode"/> needs except its slug (assigned serially — see Constraint 1
+    /// in plan.md). Touches no shared mutable state, so it is safe to call from any thread;
+    /// this is also the exact seam a future incremental cache would memoise on
+    /// <c>(entry.AbsPath, mtime, size)</c> — do not inline it back into the loop.</summary>
+    private static FileResult AnalyzeOne(FileEntry entry, Analyzers a, AuthoredDescriptions authored)
+    {
+        var localDiagnostics = new List<string>();
+        var language = KnownFileAnalyzer.LanguageByExtension.GetValueOrDefault(entry.Extension, "Other");
+
+        string content = "";
+        var loc = 0;
+        var analyzable = language != "Other" && entry.SizeBytes <= MaxAnalyzeBytes;
+        if (analyzable)
+        {
+            try
+            {
+                content = File.ReadAllText(entry.AbsPath);
+                loc = CountLines(content);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                localDiagnostics.Add($"Could not read {entry.RelPath}: {ex.Message}");
+                analyzable = false;
+            }
+        }
+        else if (language != "Other")
+        {
+            // Too big to parse, but still a known-language source: estimate LOC from
+            // size (deterministic) so it isn't dropped from totals and "largest files".
+            loc = (int)(entry.SizeBytes / EstimatedBytesPerLine);
+            localDiagnostics.Add($"Skipped deep analysis of {entry.RelPath} ({StructurePageBytes(entry.SizeBytes)} exceeds 1 MB limit); LOC estimated from size.");
+        }
+
+        FileFacts facts = new() { Language = language };
+        if (analyzable && content.Length > 0)
+        {
+            try
+            {
+                if (a.CSharp.CanHandle(entry.Extension)) { facts = a.CSharp.Analyze(entry, content); }
+                else
+                {
+                    var analyzer = a.Regex.FirstOrDefault(x => x.CanHandle(entry.Extension)) ?? a.Known;
+                    facts = analyzer.Analyze(entry, content);
+                }
+            }
+            catch (Exception ex)
+            {
+                localDiagnostics.Add($"Analysis failed for {entry.RelPath}: {ex.Message}");
+                if (a.CSharp.CanHandle(entry.Extension))
+                {
+                    try { facts = a.CSharpFallback.Analyze(entry, content); } catch { facts = new FileFacts { Language = language }; }
+                }
+            }
+        }
+
+        var node = new FileNode
+        {
+            RelPath = entry.RelPath,
+            Slug = "", // assigned serially in BuildModel's reduce pass
+            Language = facts.Language,
+            SizeBytes = entry.SizeBytes,
+            Loc = loc,
+            IsTest = TestDetection.IsTest(entry.RelPath),
+            IsVendored = VendoredDetection.IsVendored(entry.RelPath),
+            Imports = facts.Imports,
+            Types = facts.Types,
+            Todos = analyzable && content.Length > 0 ? TodoScanner.Scan(content, facts.Language) : [],
+        };
+        PurposeHeuristics.Apply(node, content);
+        // Authored file description (from the sidecar) wins over the heuristic purpose.
+        if (authored.Files.TryGetValue(entry.RelPath, out var authoredPurpose))
+        {
+            node.Purpose = authoredPurpose;
+            node.PurposeSource = "authored";
+        }
+
+        return new FileResult(node, facts.Language, loc, localDiagnostics);
     }
 
     /// <summary>Slug: relative path with non-alphanumerics -> '_', capped at 100 chars

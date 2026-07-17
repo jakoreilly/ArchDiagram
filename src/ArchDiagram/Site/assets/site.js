@@ -99,6 +99,21 @@
       apply();
     }
 
+    // "Find node…" jump target: reuses the existing anchor-preserving zoom, then a pure
+    // screen-space pan (via getBoundingClientRect, so it's correct regardless of the
+    // SVG's internal coordinate system) to bring the node to the stage's centre.
+    function centerOn(node) {
+      var stageRect = stage.getBoundingClientRect();
+      var r = node.getBoundingClientRect();
+      if (scale < 1.5) {
+        zoomAt(r.left + r.width / 2 - stageRect.left, r.top + r.height / 2 - stageRect.top, 1.5 / scale);
+        r = node.getBoundingClientRect();
+      }
+      tx += (stageRect.left + stageRect.width / 2) - (r.left + r.width / 2);
+      ty += (stageRect.top + stageRect.height / 2) - (r.top + r.height / 2);
+      apply();
+    }
+
     card.querySelector("[data-act='zoom-in']").onclick = function () {
       var r = stage.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 1.2);
     };
@@ -146,7 +161,7 @@
     });
     on(window, "mouseup", function () { dragging = false; stage.classList.remove("panning"); });
 
-    attachTooltips(card, svg);
+    attachTooltips(card, svg, centerOn);
 
     // Auto-fit once the SVG has laid out so the whole diagram is visible on load
     // without clicking Fit. Double rAF lets mermaid's SVG size settle before measuring.
@@ -216,14 +231,18 @@
     }
   }
 
-  function attachTooltips(card, svg) {
+  function attachTooltips(card, svg, centerOn) {
     var mapEl = card.querySelector("script.tooltips");
     var map = {};
     if (mapEl) { try { map = JSON.parse(mapEl.textContent); } catch (e) { map = {}; } }
     var hrefEl = card.querySelector("script.hrefs");
     var hrefs = {};
     if (hrefEl) { try { hrefs = JSON.parse(hrefEl.textContent); } catch (e) { hrefs = {}; } }
+    var adjEl = card.querySelector("script.adjacency");
+    var adjacency = {};
+    if (adjEl) { try { adjacency = JSON.parse(adjEl.textContent); } catch (e) { adjacency = {}; } }
 
+    var nodeByAlias = {};
     svg.querySelectorAll("g.node").forEach(function (node) {
       // Mermaid node DOM ids embed our alias, e.g. "flowchart-n001-12".
       // Aliases are zero-padded to >=3 digits but grow past n999 on large diagrams,
@@ -231,6 +250,7 @@
       var m = /(?:^|-)(n\d{3,})(?:-|$)/.exec(node.id || "");
       var alias = m && m[1];
       if (!alias) { return; }
+      nodeByAlias[alias] = node;
       var text = map[alias];
       var url = hrefs[alias];
 
@@ -243,6 +263,77 @@
         node.style.cursor = "pointer";
       }
     });
+
+    setupFlowHighlight(card, svg, nodeByAlias, adjacency);
+    setupNodeFind(card, nodeByAlias, centerOn);
+  }
+
+  /* ---- Hover flow-path highlight: light a node's neighbours, dim the rest ----
+     Edge dimming is best-effort: mermaid's rendered edge element ids are version-
+     specific ("L_n001_n002_0" in the vendored build here — verified against the
+     source below). If that pattern ever matches nothing (a mermaid upgrade changed
+     it), highlighting silently degrades to nodes-only, which still delivers the
+     core value and never breaks node click-to-open. */
+  function setupFlowHighlight(card, svg, nodeByAlias, adjacency) {
+    var aliases = Object.keys(nodeByAlias);
+    if (aliases.length === 0) { return; }
+    var edgeEls = svg.querySelectorAll(".edgePaths path, .edgePath path, path.flowchart-link");
+
+    function edgeTouches(el, alias) {
+      var id = el.id || el.getAttribute("class") || "";
+      return id.indexOf("_" + alias + "_") >= 0 || id.indexOf("-" + alias + "-") >= 0
+          || id.indexOf("_" + alias) === id.length - alias.length - 1
+          || id.indexOf(alias + "_") === 0 || id.indexOf(alias + "-") === 0;
+    }
+
+    function highlight(alias) {
+      var keep = {}; keep[alias] = true;
+      (adjacency[alias] || []).forEach(function (n) { keep[n] = true; });
+      svg.classList.add("path-focus");
+      aliases.forEach(function (a) {
+        nodeByAlias[a].classList.toggle("path-dim", !keep[a]);
+      });
+      edgeEls.forEach(function (el) { el.classList.toggle("path-dim", !edgeTouches(el, alias)); });
+    }
+    function clear() {
+      svg.classList.remove("path-focus");
+      svg.querySelectorAll(".path-dim").forEach(function (el) { el.classList.remove("path-dim"); });
+    }
+
+    aliases.forEach(function (a) {
+      var node = nodeByAlias[a];
+      node.addEventListener("mouseenter", function () { highlight(a); });
+      node.addEventListener("mouseleave", clear);
+      node.addEventListener("focus", function () { highlight(a); });
+      node.addEventListener("blur", clear);
+    });
+  }
+
+  /* ---- "Find node…" toolbar box: centers + pulses the matching node ---- */
+  function setupNodeFind(card, nodeByAlias, centerOn) {
+    var input = card.querySelector("[data-act='find']");
+    if (!input) { return; }
+
+    function labelOf(node) {
+      var t = node.querySelector("text, .nodeLabel, span");
+      return (t ? t.textContent : node.textContent || "").trim();
+    }
+
+    function findAndGo() {
+      var q = input.value.trim().toLowerCase();
+      if (!q) { return; }
+      var aliases = Object.keys(nodeByAlias);
+      for (var i = 0; i < aliases.length; i++) {
+        var node = nodeByAlias[aliases[i]];
+        if (labelOf(node).toLowerCase().indexOf(q) >= 0) {
+          centerOn(node);
+          node.classList.add("path-pulse");
+          setTimeout(function () { node.classList.remove("path-pulse"); }, 1200);
+          return;
+        }
+      }
+    }
+    input.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); findAndGo(); } });
   }
 
   // Selector groups: <select data-diagram-select="group"> shows one card per group.

@@ -13,9 +13,13 @@ public static class GraphPage
 {
     /// <summary>True when the graph has at least one file-to-file dependency to plot.</summary>
     public static bool HasData(ProjectModel model) =>
-        model.FileDependencies.Count(e => e.ToSlug.Length > 0) > 0;
+        model.FileDependencies.Any(e => e.ToSlug.Length > 0);
 
-    public static string Body(ProjectModel model)
+    public static string Body(ProjectModel model) => Body(model, graphJson: null);
+
+    /// <summary>Reuses an already-serialized graph payload (see <see cref="SiteContext.GraphJson"/>)
+    /// instead of building it again — the full-site generation path calls this overload.</summary>
+    public static string Body(ProjectModel model, string? graphJson)
     {
         if (!HasData(model))
         {
@@ -36,7 +40,7 @@ Toggle import and call edges independently, or type in the filter box to spotlig
 Click a node and choose <strong>↯ Trace data flow</strong> to light up everything reachable downstream from it —
 the blast radius of a change or the paths a request can take — coloured by hops from that entry, with an optional animated pulse.</p>
 """);
-        sb.Append(Embed(model, compact: false, relRoot: ""));
+        sb.Append(Embed(model, compact: false, relRoot: "", graphJson));
         return sb.ToString();
     }
 
@@ -45,7 +49,11 @@ the blast radius of a change or the paths a request can take — coloured by hop
     /// mode the canvas is shorter and the hops/colour/highlight controls are dropped
     /// (search + hide-tests + reset remain), with a link to the full page.</summary>
     /// <param name="relRoot">"" for root pages, "../" for pages under files/.</param>
-    public static string Embed(ProjectModel model, bool compact, string relRoot)
+    public static string Embed(ProjectModel model, bool compact, string relRoot) => Embed(model, compact, relRoot, graphJson: null);
+
+    /// <inheritdoc cref="Embed(ProjectModel, bool, string)"/>
+    /// <param name="graphJson">A pre-built payload (<see cref="SiteContext.GraphJson"/>); null rebuilds it.</param>
+    public static string Embed(ProjectModel model, bool compact, string relRoot, string? graphJson)
     {
         if (!HasData(model)) { return ""; }
 
@@ -148,7 +156,7 @@ style, and focus-distance animation — <strong>not</strong> five geometric axes
         // Embed the graph payload inline so the viewer works from file:// (where
         // fetch() is blocked). model.json / graph.json remain for external tooling.
         // JsonSerializer's default encoder escapes < > & so this is safe inside <script>.
-        sb.Append("<script>window.ARCH_GRAPH=").Append(GraphDataWriter.BuildJson(model)).Append(";</script>");
+        sb.Append("<script>window.ARCH_GRAPH=").Append(graphJson ?? GraphDataWriter.BuildJson(model)).Append(";</script>");
 
         // Load the vendored 3D bundle + controller (local paths, offline-safe).
         sb.Append($"<script src=\"{relRoot}assets/lib/3d-force-graph.min.js\"></script>");

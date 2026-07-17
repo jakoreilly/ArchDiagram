@@ -53,6 +53,8 @@ Generated on {Html.Encode(generatedOn)}.</p>
             + "one site's project referenced as another's package, or a call to a type defined in another site. "
             + "If sites share nothing, they correctly appear as separate islands.</p>");
 
+        AppendAllSites(sb, model);
+
         if (model.Diagnostics.Count > 0)
         {
             sb.Append($"<h2>Scan diagnostics <span class=\"badge warn\">{model.Diagnostics.Count}</span></h2>");
@@ -62,6 +64,25 @@ Generated on {Html.Encode(generatedOn)}.</p>
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>A complete, always-reachable directory of every site — the graph above trims
+    /// to <c>maxNodes</c> and collapses the rest into an unlinked "… and N more" node
+    /// (see BuildDiagram → GraphReducer.TrimToMax), so on a large landscape some sites would
+    /// otherwise be unreachable from the parent. This table lists all of them.</summary>
+    private static void AppendAllSites(StringBuilder sb, LandscapeModel model)
+    {
+        sb.Append("<h2>All sites</h2>");
+        sb.Append("<p class=\"lede\">Every site in this landscape, whether or not it appears in the graph above. "
+            + "The graph shows only the most-connected sites; this list is complete — click any row to open that site's report.</p>");
+        sb.Append("<table class=\"grid\"><thead><tr><th>Site</th><th>Files</th><th>Projects</th><th>Databases</th></tr></thead><tbody>");
+        foreach (var s in model.Sites.OrderBy(x => x.Model.RootName, StringComparer.OrdinalIgnoreCase))
+        {
+            var m = s.Model;
+            sb.Append($"<tr><td><a href=\"{Html.Encode(s.IndexHref)}\">{Html.Encode(m.RootName)}</a></td>"
+                + $"<td>{m.Files.Count:N0}</td><td>{m.Projects.Count:N0}</td><td>{m.Databases.Count:N0}</td></tr>");
+        }
+        sb.Append("</tbody></table>");
     }
 
     private static void Tile(StringBuilder sb, string num, string label)

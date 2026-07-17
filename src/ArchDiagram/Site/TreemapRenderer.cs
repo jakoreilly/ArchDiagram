@@ -51,19 +51,30 @@ public static class TreemapRenderer
     // Squarified treemap (Bruls, Huizing, van Wijk). Packs rows whose rectangles stay as
     // close to square as possible, laying each fixed row along the current rectangle's
     // shortest side and recursing into the remainder.
+    //
+    // Walks `items` with an index instead of `List.RemoveAt(0)` (O(n) per removal → O(n²)
+    // overall for n items), and tracks the row's running sum/max/min instead of recomputing
+    // them with a fresh LINQ pass per candidate. The running sum is accumulated in the exact
+    // same left-to-right order Enumerable.Sum would use, so floating-point results — and
+    // therefore the rendered coordinates — are bit-for-bit identical to the original.
     private static void Squarify(List<Item> items, Rect rect, List<Placed> output)
     {
-        var remaining = new List<Item>(items);
-        while (remaining.Count > 0)
+        var idx = 0;
+        while (idx < items.Count)
         {
             var row = new List<Item>();
             var side = rect.Shortest;
-            while (remaining.Count > 0)
+            double rowSum = 0, rowMax = 0, rowMin = double.MaxValue;
+            while (idx < items.Count)
             {
-                var candidate = new List<Item>(row) { remaining[0] };
-                if (row.Count > 0 && WorstRatio(candidate, side) > WorstRatio(row, side)) { break; }
-                row.Add(remaining[0]);
-                remaining.RemoveAt(0);
+                var area = items[idx].Area;
+                var candSum = rowSum + area;
+                var candMax = Math.Max(rowMax, area);
+                var candMin = Math.Min(rowMin, area);
+                if (row.Count > 0 && WorstRatio(candSum, candMax, candMin, side) > WorstRatio(rowSum, rowMax, rowMin, side)) { break; }
+                row.Add(items[idx]);
+                rowSum = candSum; rowMax = candMax; rowMin = candMin;
+                idx++;
             }
             rect = LayoutRow(row, rect, output);
         }
@@ -103,12 +114,9 @@ public static class TreemapRenderer
 
     /// <summary>Worst (largest) aspect ratio among a candidate row laid along <paramref name="side"/>.
     /// Lower is squarer; used to decide when to stop growing a row.</summary>
-    private static double WorstRatio(List<Item> row, double side)
+    private static double WorstRatio(double sum, double max, double min, double side)
     {
-        var sum = row.Sum(i => i.Area);
         if (sum <= 0 || side <= 0) { return double.MaxValue; }
-        var max = row.Max(i => i.Area);
-        var min = row.Min(i => i.Area);
         var side2 = side * side;
         var sum2 = sum * sum;
         return Math.Max((side2 * max) / sum2, sum2 / (side2 * min));

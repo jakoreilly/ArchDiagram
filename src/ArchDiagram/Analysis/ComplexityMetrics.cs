@@ -113,4 +113,122 @@ internal static class ComplexityMetrics
             base.VisitBinaryExpression(node);
         }
     }
+
+    /// <summary>Cyclomatic + cognitive complexity + invocation collection in a single tree
+    /// walk, for the hot path (one call per method/constructor across the whole codebase —
+    /// see CSharpSyntaxAnalyzer.BuildMethod). Produces exactly the same numbers as calling
+    /// <see cref="Cyclomatic"/>, <see cref="Cognitive"/> and the analyzer's invocation
+    /// collector separately, verified by ComplexityMetricsTests. The rare top-level
+    /// ("&lt;main&gt;") path still calls the three original methods independently — it runs
+    /// once per file, not once per method, so the duplication there doesn't matter.</summary>
+    internal static (int Cyclomatic, int Cognitive, List<Graph.InvocationRef> Invocations) ComputeAll(SyntaxNode body)
+    {
+        var walker = new CombinedWalker();
+        walker.Visit(body);
+        var invocations = walker.Invocations
+            .Distinct()
+            .OrderBy(r => r.Name, StringComparer.Ordinal).ThenBy(r => r.Arity)
+            .ToList();
+        return (walker.Cyclomatic, walker.Cognitive, invocations);
+    }
+
+    private static string InvokedName(ExpressionSyntax expr) => expr switch
+    {
+        IdentifierNameSyntax id => id.Identifier.Text,
+        MemberAccessExpressionSyntax ma => InvokedName(ma.Name),
+        GenericNameSyntax g => g.Identifier.Text,
+        MemberBindingExpressionSyntax mb => InvokedName(mb.Name),
+        _ => "",
+    };
+
+    /// <summary>Combines the cyclomatic switch (over every descendant, matched by kind) and
+    /// the cognitive nesting walker (recursive, only over control-flow-affecting kinds) into
+    /// one traversal, plus invocation collection. Mapping from the two originals:
+    /// - Nodes cyclomatic counts but cognitive doesn't score individually (case labels, switch
+    ///   expression arms) fall through to <see cref="DefaultVisit"/>, which does the cyclomatic-only increment.
+    /// - Nodes both score (if/loops/switch-statement/catch/conditional) increment cyclomatic
+    ///   inline in the same override that does the cognitive nesting.
+    /// - Binary operators: &amp;&amp;/|| count for both; ?? counts for cyclomatic only (matches
+    ///   the two originals, which disagree on ?? by design — see the class doc comment).
+    /// - <c>SwitchStatementSyntax</c> itself is cognitive-nested but NOT a cyclomatic node
+    ///   (only its case labels are), matching <see cref="Cyclomatic"/> exactly.</summary>
+    private sealed class CombinedWalker : CSharpSyntaxWalker
+    {
+        public int Cyclomatic { get; private set; } = 1;
+        public int Cognitive { get; private set; }
+        public List<Graph.InvocationRef> Invocations { get; } = [];
+        private int _nesting;
+
+        private void Nested(SyntaxNode node, bool cyclomaticToo)
+        {
+            if (cyclomaticToo) { Cyclomatic++; }
+            Cognitive += 1 + _nesting;
+            _nesting++;
+            base.DefaultVisit(node);
+            _nesting--;
+        }
+
+        public override void VisitIfStatement(IfStatementSyntax node)
+        {
+            Cyclomatic++;
+            Cognitive += 1 + _nesting;
+            _nesting++;
+            Visit(node.Condition);
+            Visit(node.Statement);
+            _nesting--;
+            if (node.Else is not null) { Visit(node.Else); }
+        }
+
+        public override void VisitElseClause(ElseClauseSyntax node)
+        {
+            Cognitive += 1; // flat +1, no nesting penalty (Sonar rule)
+            Visit(node.Statement);
+        }
+
+        public override void VisitForStatement(ForStatementSyntax node) => Nested(node, cyclomaticToo: true);
+        public override void VisitForEachStatement(ForEachStatementSyntax node) => Nested(node, cyclomaticToo: true);
+        public override void VisitWhileStatement(WhileStatementSyntax node) => Nested(node, cyclomaticToo: true);
+        public override void VisitDoStatement(DoStatementSyntax node) => Nested(node, cyclomaticToo: true);
+        // The switch STATEMENT itself is not a cyclomatic node — only its case labels are
+        // (handled in DefaultVisit below), matching Cyclomatic() exactly.
+        public override void VisitSwitchStatement(SwitchStatementSyntax node) => Nested(node, cyclomaticToo: false);
+        public override void VisitCatchClause(CatchClauseSyntax node) => Nested(node, cyclomaticToo: true);
+        public override void VisitConditionalExpression(ConditionalExpressionSyntax node) => Nested(node, cyclomaticToo: true);
+
+        public override void VisitBinaryExpression(BinaryExpressionSyntax node)
+        {
+            if (node.OperatorToken.IsKind(SyntaxKind.AmpersandAmpersandToken)
+             || node.OperatorToken.IsKind(SyntaxKind.BarBarToken))
+            {
+                Cyclomatic++;
+                Cognitive += 1; // flat +1, no nesting change
+            }
+            else if (node.OperatorToken.IsKind(SyntaxKind.QuestionQuestionToken))
+            {
+                Cyclomatic++; // cyclomatic-only, matching Cyclomatic()'s IsShortCircuitOrCoalesce
+            }
+            base.VisitBinaryExpression(node);
+        }
+
+        public override void VisitInvocationExpression(InvocationExpressionSyntax node)
+        {
+            var name = InvokedName(node.Expression);
+            if (name.Length > 0) { Invocations.Add(new Graph.InvocationRef(name, node.ArgumentList.Arguments.Count)); }
+            base.VisitInvocationExpression(node);
+        }
+
+        public override void DefaultVisit(SyntaxNode node)
+        {
+            switch (node)
+            {
+                case CaseSwitchLabelSyntax:
+                case CasePatternSwitchLabelSyntax:
+                // The `_ =>` default arm is not a branch, matching Cyclomatic().
+                case SwitchExpressionArmSyntax arm when arm.Pattern is not DiscardPatternSyntax:
+                    Cyclomatic++;
+                    break;
+            }
+            base.DefaultVisit(node);
+        }
+    }
 }

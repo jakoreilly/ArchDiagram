@@ -6,8 +6,15 @@ namespace ArchDiagram.Site.Pages;
 
 public static class IndexPage
 {
-    public static string Body(ProjectModel model, int maxNodes, string generatedOn)
+    public static string Body(ProjectModel model, int maxNodes, string generatedOn) =>
+        Body(SiteContext.Build(model), maxNodes, generatedOn);
+
+    /// <summary>Reuses the scorecard, importance ranking and graph payload already computed
+    /// in <paramref name="ctx"/> (previously each computed a second time by MarkdownExporter,
+    /// or serialized a second/third time for the compact graph embed).</summary>
+    public static string Body(SiteContext ctx, int maxNodes, string generatedOn)
     {
+        var model = ctx.Model;
         // Headline figures describe first-party code (exclude tests and vendored/minified
         // bundles) so they never mischaracterize the project; the excluded totals are shown
         // as an explicit breakdown beneath the language bar.
@@ -50,7 +57,7 @@ graphs, and a dedicated page per file. Every diagram supports pan, zoom, hover d
         Tile(sb, languageLoc.Count.ToString("N0"), "Languages");
         sb.Append("</div>");
 
-        AppendHealthSummary(sb, model);
+        AppendHealthSummary(sb, ctx);
         AppendTopActions(sb, model);
         AppendStackChips(sb, model);
 
@@ -110,7 +117,7 @@ graphs, and a dedicated page per file. Every diagram supports pan, zoom, hover d
             sb.Append("<p class=\"lede\">The static architecture diagram for this project is only a handful of boxes, "
                     + "so the interactive dependency graph leads here — drag to orbit, scroll to zoom, and click any file to focus it. "
                     + "The static diagram is tucked below.</p>");
-            sb.Append(GraphPage.Embed(model, compact: true, relRoot: ""));
+            sb.Append(GraphPage.Embed(model, compact: true, relRoot: "", ctx.GraphJson));
             sb.Append("<details class=\"legend\"><summary>Static architecture diagram</summary>");
             sb.Append($"<p class=\"lede\">{archLede}</p>");
             sb.Append(PageTemplate.DiagramBlock("arch", archDiagram, model.RootName + "-architecture"));
@@ -128,13 +135,13 @@ graphs, and a dedicated page per file. Every diagram supports pan, zoom, hover d
                 sb.Append("<p class=\"lede\">The interactive dependency graph plots every file in a WebGL force graph — "
                         + "click a node to focus it and unfold its neighbours, search to jump to a file, or open the "
                         + "<a href=\"graph.html\">full 3D graph</a> for the complete control set.</p>");
-                sb.Append(GraphPage.Embed(model, compact: true, relRoot: ""));
+                sb.Append(GraphPage.Embed(model, compact: true, relRoot: "", ctx.GraphJson));
             }
         }
 
         // "Start here": the most central files for a newcomer to read first. Placed below the
         // architecture diagrams so the big picture leads and the reading list follows.
-        AppendStartHere(sb, model);
+        AppendStartHere(sb, ctx);
 
         // Diagnostics.
         if (model.Diagnostics.Count > 0)
@@ -154,9 +161,11 @@ graphs, and a dedicated page per file. Every diagram supports pan, zoom, hover d
 
     /// <summary>Ranks the most central files (fan-in, calls, entry points, size) so a
     /// newcomer knows where to start reading. Empty-state when nothing scores.</summary>
-    private static void AppendStartHere(StringBuilder sb, ProjectModel model)
+    private static void AppendStartHere(StringBuilder sb, SiteContext ctx)
     {
-        var ranked = Analysis.ImportanceScorer.Rank(model, 12);
+        // ctx.Ranked is cached at take=20 (the widest caller); slicing to 12 here reproduces
+        // ImportanceScorer.Rank(model, 12) exactly since its ordering doesn't depend on `take`.
+        var ranked = ctx.Ranked.Take(12).ToList();
         sb.Append("<h2>Start here <span class=\"badge accent\">most central files</span></h2>");
         if (ranked.Count == 0)
         {
@@ -210,9 +219,9 @@ graphs, and a dedicated page per file. Every diagram supports pan, zoom, hover d
     /// <summary>Dashboard "health at a glance": the scorecard's overall grade and the signals
     /// that need attention, each a link to the page that explains and fixes it. Turns the
     /// Overview into a landing that answers "is this healthy, and where do I look?".</summary>
-    private static void AppendHealthSummary(StringBuilder sb, ProjectModel model)
+    private static void AppendHealthSummary(StringBuilder sb, SiteContext ctx)
     {
-        var card = Analysis.ScorecardBuilder.Build(model);
+        var card = ctx.Scorecard;
         var (label, cls) = card.Overall switch
         {
             Analysis.ScorecardBuilder.Status.Ok => ("PASS", "ok"),

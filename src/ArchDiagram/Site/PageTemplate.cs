@@ -144,6 +144,7 @@ public static class PageTemplate
     {
         var tooltipJson = JsonSerializer.Serialize(diagram.Tooltips);
         var hrefJson = JsonSerializer.Serialize(diagram.Hrefs);
+        var adjacencyJson = JsonSerializer.Serialize(diagram.Adjacency);
         var hiddenAttr = hidden ? " hidden" : "";
         var groupAttr = group.Length > 0 ? $" data-group=\"{Html.Encode(group)}\"" : "";
         var deferredAttr = deferred ? " data-deferred=\"1\"" : "";
@@ -164,11 +165,13 @@ public static class PageTemplate
     <button class="btn btn-primary" data-act="png" type="button" title="Download this diagram as a PNG image">⬇ PNG</button>
     <button class="btn" data-act="svg" type="button" title="Download this diagram as a scalable SVG">⬇ SVG</button>
     <button class="btn" data-act="copy" type="button" title="Copy the Mermaid source of this diagram to the clipboard">Copy Mermaid</button>
-    <span class="tb-hint">Scroll to zoom · drag to pan · hover for details · click a node to open it</span>
+    <input class="filter-input diagram-find" type="search" data-act="find" placeholder="Find node…" autocomplete="off" spellcheck="false" title="Jump to a node by name (Enter)">
+    <span class="tb-hint">Scroll to zoom · drag to pan · hover a node to trace its links · click a node to open it</span>
   </div>
   <div class="stage"><pre class="mermaid-src" hidden>{Html.Encode(diagram.Mermaid)}</pre><div class="render-target"></div></div>
   <script type="application/json" class="tooltips">{tooltipJson}</script>
   <script type="application/json" class="hrefs">{hrefJson}</script>
+  <script type="application/json" class="adjacency">{adjacencyJson}</script>
 </div>
 """;
     }
