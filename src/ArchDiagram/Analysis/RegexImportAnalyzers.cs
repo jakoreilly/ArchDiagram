@@ -43,7 +43,7 @@ public abstract class RegexImportAnalyzer : ILanguageAnalyzer
 public sealed class CSharpUsingAnalyzer : RegexImportAnalyzer
 {
     private static readonly Regex Using = new(@"^\s*(?:global\s+)?using\s+(?:static\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*;",
-        RegexOptions.Compiled | RegexOptions.Multiline, Timeout);
+        RegexOptions.Multiline, Timeout);
 
     public override string Language => "C#";
     public override bool CanHandle(string extension) => extension is ".cs";
@@ -54,9 +54,9 @@ public sealed class CSharpUsingAnalyzer : RegexImportAnalyzer
 public sealed class TsJsImportAnalyzer : RegexImportAnalyzer
 {
     private static readonly Regex EsImport = new(@"^\s*(?:import|export)\s+(?:[^'""]*?\s+from\s+)?['""]([^'""]+)['""]",
-        RegexOptions.Compiled | RegexOptions.Multiline, Timeout);
+        RegexOptions.Multiline, Timeout);
     private static readonly Regex Require = new(@"require\s*\(\s*['""]([^'""]+)['""]\s*\)",
-        RegexOptions.Compiled, Timeout);
+        RegexOptions.None, Timeout);
 
     public override string Language => "TypeScript/JavaScript";
     public override bool CanHandle(string extension) => extension is ".ts" or ".tsx" or ".js" or ".jsx" or ".mjs" or ".cjs";
@@ -67,7 +67,7 @@ public sealed class TsJsImportAnalyzer : RegexImportAnalyzer
 public sealed class PythonImportAnalyzer : RegexImportAnalyzer
 {
     private static readonly Regex Import = new(@"^\s*(?:from\s+([A-Za-z_][A-Za-z0-9_.]*)\s+import|import\s+([A-Za-z_][A-Za-z0-9_.]*))",
-        RegexOptions.Compiled | RegexOptions.Multiline, Timeout);
+        RegexOptions.Multiline, Timeout);
 
     public override string Language => "Python";
     public override bool CanHandle(string extension) => extension is ".py";
@@ -77,9 +77,9 @@ public sealed class PythonImportAnalyzer : RegexImportAnalyzer
 public sealed class PowerShellImportAnalyzer : RegexImportAnalyzer
 {
     private static readonly Regex DotSource = new(@"^\s*\.\s+['""]?(\$?[^\s'""#]+\.ps1)['""]?",
-        RegexOptions.Compiled | RegexOptions.Multiline, Timeout);
+        RegexOptions.Multiline, Timeout);
     private static readonly Regex ImportModule = new(@"(?im)^\s*(?:Import-Module|using\s+module)\s+['""]?([^\s'""#;]+)['""]?",
-        RegexOptions.Compiled, Timeout);
+        RegexOptions.None, Timeout);
 
     public override string Language => "PowerShell";
     public override bool CanHandle(string extension) => extension is ".ps1" or ".psm1" or ".psd1";
